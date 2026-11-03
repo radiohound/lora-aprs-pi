@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2F6F5E">
+<title>LoRa APRS Pi</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="ident">
+    <h1 id="callsign">LoRa APRS Pi</h1>
+    <span id="sim" class="sim" hidden>Simulated radio</span>
+  </div>
+  <div id="lamp" class="lamp" data-state="starting" role="status" aria-live="polite">
+    <span class="lamp-dot" aria-hidden="true"></span>
+    <span id="lamp-text">Starting the radio…</span>
+  </div>
+</header>
+
+<main>
+  <!-- Status -->
+  <section id="tab-status" class="tab" aria-labelledby="t-status">
+    <dl class="rows">
+      <div><dt>Radio</dt><dd id="s-radio">–</dd></div>
+      <div><dt>Board</dt><dd id="s-board">–</dd></div>
+      <div><dt>Power</dt><dd id="s-power">–</dd></div>
+      <div><dt>LACF</dt><dd id="s-lacf">–</dd></div>
+      <div><dt>GPS</dt><dd id="s-gps">–</dd></div>
+      <div><dt>Packets</dt><dd id="s-counts">–</dd></div>
+      <div><dt>Network</dt><dd id="s-net">–</dd></div>
+    </dl>
+
+    <h2>Beacon</h2>
+    <p id="s-beacon" class="lede">–</p>
+    <p id="s-beacon-note" class="note" hidden></p>
+    <pre id="s-beacon-last" class="raw" hidden></pre>
+    <button id="beacon-now" class="primary" type="button">Send beacon now</button>
+    <p class="fineprint" id="s-version"></p>
+  </section>
+
+  <!-- Heard -->
+  <section id="tab-heard" class="tab" hidden aria-labelledby="t-heard">
+    <p id="heard-empty" class="empty">Nothing heard yet. Packets show up here as soon as the radio hears them.</p>
+    <ol id="heard-list" class="heard"></ol>
+  </section>
+
+  <!-- Settings -->
+  <section id="tab-settings" class="tab" hidden aria-labelledby="t-settings">
+    <form id="settings-form" novalidate>
+      <fieldset>
+        <legend>Station</legend>
+        <label>Callsign with SSID
+          <input name="station.callsign" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="K6ATV-12">
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Beacon</legend>
+        <label class="check"><input type="checkbox" name="beacon.enabled"> Send a position beacon</label>
+        <label>Every (minutes)
+          <input name="beacon.interval_min" type="number" inputmode="numeric" min="1" max="1440">
+        </label>
+        <label class="check"><input type="checkbox" name="beacon.use_gps"> Use the GPS position when it has a fix</label>
+        <div class="pair">
+          <label>Latitude
+            <input name="beacon.latitude" inputmode="decimal" placeholder="37.0700">
+          </label>
+          <label>Longitude
+            <input name="beacon.longitude" inputmode="decimal" placeholder="-121.5600">
+          </label>
+        </div>
+        <label>Altitude (feet, optional)
+          <input name="beacon.altitude_ft" inputmode="numeric">
+        </label>
+        <label>Symbol
+          <select name="beacon.symbol" id="symbols"></select>
+        </label>
+        <label>Comment
+          <input name="beacon.comment" maxlength="80">
+        </label>
+        <label>Path
+          <input name="beacon.path" autocapitalize="characters" spellcheck="false" placeholder="WIDE1-1">
+        </label>
+        <label>Format
+          <select name="beacon.format">
+            <option value="standard">Standard (every LoRa APRS station can hear it)</option>
+            <option value="lacf">LACF (smaller; only LACF stations can hear it)</option>
+            <option value="alternate">Alternate standard and LACF</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Radio</legend>
+        <label>Board
+          <select name="radio.profile" id="profiles"></select>
+        </label>
+        <div id="custom-pins" class="grid" hidden>
+          <p class="hint">BCM GPIO numbers; -1 if not connected.</p>
+          <label>Chip select <input name="radio.custom.cs" type="number"></label>
+          <label>Reset <input name="radio.custom.reset" type="number"></label>
+          <label>IRQ (DIO1) <input name="radio.custom.irq" type="number"></label>
+          <label>Busy <input name="radio.custom.busy" type="number"></label>
+          <label>TX enable <input name="radio.custom.tx_en" type="number"></label>
+          <label>RX enable <input name="radio.custom.rx_en" type="number"></label>
+          <label>Amplifier gain (dB) <input name="radio.custom.pa_gain_db" type="number" step="0.5"></label>
+          <label>Max chip power (dBm) <input name="radio.custom.max_chip_dbm" type="number"></label>
+        </div>
+        <label>Frequency (MHz)
+          <input name="radio.freq_mhz" inputmode="decimal">
+        </label>
+        <div class="pair">
+          <label>Spreading factor
+            <select name="radio.sf">
+              <option value="7">SF7</option><option value="8">SF8</option><option value="9">SF9</option>
+              <option value="10">SF10</option><option value="11">SF11</option><option value="12">SF12</option>
+            </select>
+          </label>
+          <label>Bandwidth
+            <select name="radio.bw_khz">
+              <option value="62.5">62.5 kHz</option><option value="125">125 kHz</option>
+              <option value="250">250 kHz</option><option value="500">500 kHz</option>
+            </select>
+          </label>
+        </div>
+        <label>Coding rate
+          <select name="radio.cr">
+            <option value="5">4/5</option><option value="6">4/6</option><option value="7">4/7</option><option value="8">4/8</option>
+          </select>
+        </label>
+        <label>Power at the antenna (dBm)
+          <input name="radio.power_dbm" type="number" inputmode="numeric">
+        </label>
+        <p class="hint" id="power-hint"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>GPS</legend>
+        <label>Serial device (empty for no GPS)
+          <input name="gps.device" placeholder="/dev/ttyACM0" spellcheck="false" autocapitalize="off">
+        </label>
+        <label>Baud rate
+          <select name="gps.baud">
+            <option>4800</option><option>9600</option><option>38400</option><option>115200</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Settings password</legend>
+        <p class="hint" id="pw-state"></p>
+        <label>New password
+          <input name="web.password" type="password" autocomplete="new-password">
+        </label>
+        <button type="button" id="clear-pw" class="quiet" hidden>Remove the password</button>
+      </fieldset>
+
+      <div class="savebar">
+        <p id="save-msg" class="save-msg" role="status" aria-live="polite"></p>
+        <button class="primary" type="submit">Save settings</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- WiFi -->
+  <section id="tab-wifi" class="tab" hidden aria-labelledby="t-wifi">
+    <p id="w-state" class="lede">–</p>
+    <p id="w-help" class="note" hidden></p>
+    <h2>Join a network</h2>
+    <button id="w-scan" type="button" class="quiet">Look for networks</button>
+    <ul id="w-list" class="networks"></ul>
+    <form id="w-join" hidden>
+      <p class="lede" id="w-join-name"></p>
+      <label>Password
+        <input name="password" type="password" autocomplete="off">
+      </label>
+      <button class="primary" type="submit">Join this network</button>
+    </form>
+
+    <h2>Hotspot</h2>
+    <p class="hint">When the Pi can't join a known network it starts its own hotspot, so a phone can reach this page.</p>
+    <form id="w-hotspot">
+      <label>Hotspot name <input name="wifi.hotspot_ssid" maxlength="32"></label>
+      <label>Hotspot password (leave empty to keep it) <input name="wifi.hotspot_password" type="password" autocomplete="new-password" minlength="8"></label>
+      <button class="primary" type="submit">Save hotspot</button>
+      <button id="w-hotspot-now" type="button" class="quiet">Switch to the hotspot now</button>
+      <p id="w-msg" class="save-msg" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+</main>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" id="t-status" aria-controls="tab-status" aria-selected="true">Status</button>
+  <button role="tab" id="t-heard" aria-controls="tab-heard" aria-selected="false">Heard <span id="heard-badge" class="badge" hidden></span></button>
+  <button role="tab" id="t-settings" aria-controls="tab-settings" aria-selected="false">Settings</button>
+  <button role="tab" id="t-wifi" aria-controls="tab-wifi" aria-selected="false">WiFi</button>
+</nav>
+
+<script src="/app.js"></script>
+</body>
+</html>
