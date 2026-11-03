@@ -1,9 +1,11 @@
 """The setup web page and its small JSON API. Standard library only."""
 
 import hmac
+import ipaddress
 import json
 import logging
 import os
+import socket
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -44,12 +46,56 @@ class Handler(BaseHTTPRequestHandler):
         with open(path, "rb") as f:
             self._send(200, f.read(), TYPES[os.path.splitext(name)[1]])
 
+    # ---- who is asking ----
+
+    def _host_ok(self):
+        """True when the browser asked for this Pi by its address or its own name.
+
+        Any other name means either a phone's captive-portal check (sent to the
+        page) or a web page elsewhere trying to reach this one through DNS
+        rebinding (refused)."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        if host.startswith("["):
+            host = host[1:host.find("]")]
+        else:
+            host = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+        try:
+            ipaddress.ip_address(host)
+            return True
+        except ValueError:
+            pass
+        name = socket.gethostname().lower()
+        return host in ("localhost", name, name + ".local")
+
+    def _same_origin(self):
+        """A change must come from this page, not a form or script on another site."""
+        origin = self.headers.get("Origin")
+        if origin and urllib.parse.urlparse(origin).netloc.lower() != (self.headers.get("Host") or "").lower():
+            return False
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        return ctype == "application/json"      # plain HTML forms can't send this type
+
+    def _local_address(self):
+        addr = self.connection.getsockname()[0]
+        return f"[{addr}]" if ":" in addr else addr
+
     # ---- requests ----
 
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
         st = self.station
+        if not self._host_ok():
+            if url.path.startswith("/api/"):
+                return self._json({"error": "Open this page by the Pi's address or name"}, 403)
+            # A phone checking for a sign-in page: send it to the setup page.
+            self.send_response(302)
+            port = self.server.server_address[1]
+            where = self._local_address() + ("" if port == 80 else f":{port}")
+            self.send_header("Location", f"http://{where}/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         try:
             if url.path in FILES:
                 return self._file(FILES[url.path])
@@ -77,10 +123,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urllib.parse.urlparse(self.path)
+        if not self._host_ok() or not self._same_origin():
+            return self._json({"error": "Changes are only accepted from this station's own page"}, 403)
         if not self._allowed():
             return self._json({"error": "Settings password needed"}, 401)
         try:
             length = int(self.headers.get("Content-Length", 0))
+            if length < 0:
+                raise ValueError
             if length > MAX_BODY:
                 return self._json({"error": "Request too large"}, 413)
             body = json.loads(self.rfile.read(length) or b"{}")

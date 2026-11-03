@@ -61,13 +61,28 @@ BW_CODES = {7.8: 0x00, 10.4: 0x08, 15.6: 0x01, 20.8: 0x09, 31.25: 0x02,
 IMAGE_BANDS = [(430, 440, 0x6B, 0x6F), (470, 510, 0x75, 0x81),
                (779, 787, 0xC1, 0xC5), (863, 870, 0xD7, 0xDB), (902, 928, 0xE1, 0xE9)]
 
+
+def image_cal_bytes(freq_mhz):
+    """CalibrateImage bytes: the datasheet's band if the frequency is in one,
+    otherwise a window around it computed the way RadioLib does."""
+    for lo, hi, b1, b2 in IMAGE_BANDS:
+        if lo <= freq_mhz <= hi:
+            return b1, b2
+    lo, hi = freq_mhz - 5, freq_mhz + 5
+    return int(math.floor((lo - 1) / 4)), int(math.ceil((hi + 1) / 4))
+
+
+def needs_ldro(sf, bw_khz):
+    """Low data rate optimisation: on when a symbol lasts 16.38 ms or more."""
+    return (2 ** sf) / (bw_khz * 1000.0) >= 16.38e-3
+
 TCXO_CODES = [(1.6, 0), (1.7, 1), (1.8, 2), (2.2, 3), (2.4, 4), (2.7, 5), (3.0, 6), (3.3, 7)]
 
 
 def airtime_s(nbytes, sf, bw_khz, cr=5, preamble=8, crc=True):
     """Time on air of one LoRa packet (explicit header), in seconds."""
     tsym = (2 ** sf) / (bw_khz * 1000.0)
-    ldro = 1 if (sf >= 11 and bw_khz <= 125) else 0
+    ldro = 1 if needs_ldro(sf, bw_khz) else 0
     num = 8 * nbytes - 4 * sf + 28 + (16 if crc else 0)
     nsym = 8 + max(math.ceil(num / (4.0 * (sf - 2 * ldro))) * cr, 0)
     return (preamble + 4.25 + nsym) * tsym
@@ -214,16 +229,24 @@ class SX126x:
 
     def __init__(self, prof, spi=None, gpio=None):
         self.p = prof
-        self.gpio = gpio or Gpio()
-        self.spi = spi or Spi(prof["spi_bus"], prof["spi_dev"], prof["spi_hz"], prof["cs"], self.gpio)
         self.settings = None
-        self.gpio.output(prof["reset"], 1)
-        self.gpio.output(prof["tx_en"], 0)
-        self.gpio.output(prof["rx_en"], 0)
-        if prof["busy"] >= 0:
-            self.gpio.input(prof["busy"])
-        if prof["irq"] >= 0:
-            self.gpio.input(prof["irq"])
+        self.spi = None
+        self.gpio = gpio or Gpio()
+        try:
+            self.spi = spi or Spi(prof["spi_bus"], prof["spi_dev"], prof["spi_hz"], prof["cs"], self.gpio)
+            self.gpio.output(prof["reset"], 1)
+            self.gpio.output(prof["tx_en"], 0)
+            self.gpio.output(prof["rx_en"], 0)
+            if prof["busy"] >= 0:
+                self.gpio.input(prof["busy"])
+            if prof["irq"] >= 0:
+                self.gpio.input(prof["irq"])
+        except Exception:
+            # give back the pins and the SPI device, or the next retry finds them "in use"
+            if self.spi:
+                self.spi.close()
+            self.gpio.close()
+            raise
 
     # ---- low level ----
 
@@ -263,8 +286,8 @@ class SX126x:
         d = self._read(GET_IRQ_STATUS, 2)
         return (d[0] << 8) | d[1]
 
-    def clear_irq(self):
-        self._cmd(CLEAR_IRQ_STATUS, 0xFF, 0xFF)
+    def clear_irq(self, bits=0xFFFF):
+        self._cmd(CLEAR_IRQ_STATUS, (bits >> 8) & 0xFF, bits & 0xFF)
 
     def _irq_pending(self):
         pin = self.p["irq"]
@@ -291,7 +314,10 @@ class SX126x:
             self._cmd(SET_DIO3_AS_TCXO, code, delay >> 16, (delay >> 8) & 0xFF, delay & 0xFF)
             self._cmd(CALIBRATE, 0x7F)                     # recalibrate on the TCXO clock
             time.sleep(0.005)
-        self._cmd(SET_DIO2_AS_RF_SWITCH, 0x01)
+        # DIO2 drives the RF switch only on boards where TXEN is wired to it. When the
+        # Pi drives TXEN/RXEN itself, DIO2 is left alone so the two never fight.
+        dio2 = self.p.get("dio2_rf_switch", self.p["tx_en"] < 0)
+        self._cmd(SET_DIO2_AS_RF_SWITCH, 0x01 if dio2 else 0x00)
         self._cmd(SET_PACKET_TYPE, 0x01)                   # LoRa
         self.write_reg(REG_SYNC_WORD, sync_word_bytes(0x12))
         if self.read_reg(REG_SYNC_WORD, 2) != sync_word_bytes(0x12):
@@ -303,21 +329,20 @@ class SX126x:
         self.settings = dict(s)
         self._cmd(SET_STANDBY, 0x00)
         freq_hz = int(round(float(s["freq_mhz"]) * 1e6))
-        mhz = freq_hz / 1e6
-        for lo, hi, b1, b2 in IMAGE_BANDS:
-            if lo <= mhz <= hi:
-                self._cmd(CALIBRATE_IMAGE, b1, b2)
-                break
+        self._cmd(CALIBRATE_IMAGE, *image_cal_bytes(freq_hz / 1e6))
         f = freq_word(freq_hz)
         self._cmd(SET_RF_FREQUENCY, f >> 24, (f >> 16) & 0xFF, (f >> 8) & 0xFF, f & 0xFF)
 
-        self._cmd(SET_PA_CONFIG, 0x04, 0x07, 0x00, 0x01)  # high-power PA, up to +22 dBm
+        # High-power PA, +22 dBm table. Below 600 MHz the chip is an SX1268 (E22-400
+        # modules), whose table uses hpMax 0x06; the SX1262 (E22-900) uses 0x07.
+        hp_max = 0x06 if freq_hz < 600_000_000 else 0x07
+        self._cmd(SET_PA_CONFIG, 0x04, hp_max, 0x00, 0x01)
         self.write_reg(REG_OCP, [0x38])                    # 140 mA current limit
         chip = int(max(-9, min(22, s["chip_dbm"])))
         self._cmd(SET_TX_PARAMS, chip & 0xFF, 0x04)        # 200 us ramp
 
         sf, bw, cr = int(s["sf"]), float(s["bw_khz"]), int(s["cr"])
-        ldro = 1 if (sf >= 11 and bw <= 125) else 0
+        ldro = 1 if needs_ldro(sf, bw) else 0
         self._cmd(SET_MODULATION_PARAMS, sf, bw_code(bw), cr - 4, ldro)
         self._packet_params(255)
         self.write_reg(REG_SYNC_WORD, sync_word_bytes(int(s.get("sync_word", 0x12))))
@@ -345,7 +370,9 @@ class SX126x:
         if not self._irq_pending():
             return None
         irq = self.irq_status()
-        self.clear_irq()
+        if not irq:
+            return None
+        self.clear_irq(irq)                                # only what we read, so nothing newer is lost
         if not irq & IRQ_RX_DONE:
             return None
         rssi, snr = self._packet_status()
@@ -378,8 +405,10 @@ class SX126x:
         deadline = start + expect * 1.5 + 2.0
         try:
             while True:
-                if self._irq_pending() and self.irq_status() & IRQ_TX_DONE:
-                    break
+                if self._irq_pending():
+                    irq = self.irq_status()
+                    if irq & IRQ_TX_DONE:
+                        break
                 if time.monotonic() > deadline:
                     raise RadioError("transmit did not finish; check the antenna and power settings")
                 time.sleep(0.005)
@@ -394,5 +423,6 @@ class SX126x:
             self._rf_switch("off")
         except Exception:
             pass
-        self.spi.close()
+        if self.spi:
+            self.spi.close()
         self.gpio.close()

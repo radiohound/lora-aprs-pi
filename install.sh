@@ -18,7 +18,7 @@ step() { echo; echo "==> $*"; }
 
 step "Installing the packages it needs"
 apt-get update -qq
-apt-get install -y -qq python3 python3-spidev python3-lgpio gcc make iw >/dev/null
+apt-get install -y -qq python3 python3-spidev python3-lgpio gcc make iw dnsmasq-base >/dev/null
 
 step "Turning on SPI for the LoRa HAT"
 if command -v raspi-config >/dev/null; then

@@ -114,6 +114,20 @@ class TestHelpers(unittest.TestCase):
     def test_frequency_word(self):
         self.assertEqual(sx.freq_word(433_775_000), round(433_775_000 * 2 ** 25 / 32e6))
 
+    def test_image_calibration_any_frequency(self):
+        self.assertEqual(sx.image_cal_bytes(433.775), (0x6B, 0x6F))
+        self.assertEqual(sx.image_cal_bytes(915.0), (0xE1, 0xE9))
+        lo, hi = sx.image_cal_bytes(445.0)          # outside the datasheet's bands
+        self.assertTrue(lo * 4 <= 445.0 <= hi * 4)
+
+    def test_ldro_by_symbol_time(self):
+        self.assertTrue(sx.needs_ldro(12, 125))
+        self.assertTrue(sx.needs_ldro(11, 125))
+        self.assertTrue(sx.needs_ldro(12, 250))       # 16.38 ms symbols
+        self.assertTrue(sx.needs_ldro(10, 62.5))      # 16.38 ms symbols
+        self.assertFalse(sx.needs_ldro(11, 250))
+        self.assertFalse(sx.needs_ldro(9, 125))
+
     def test_bandwidth_codes(self):
         self.assertEqual(sx.bw_code(125), 0x04)
         self.assertEqual(sx.bw_code(62.5), 0x03)
@@ -137,6 +151,10 @@ class TestPower(unittest.TestCase):
     def test_custom_pins(self):
         p = hardware.resolve({"profile": "custom", "custom": {"cs": 7, "busy": 5, "max_chip_dbm": 14}})
         self.assertEqual((p["cs"], p["busy"], p["max_chip_dbm"]), (7, 5, 14))
+
+    def test_custom_board_starts_low_and_is_capped(self):
+        self.assertEqual(hardware.resolve({"profile": "custom"})["max_chip_dbm"], 8)
+        self.assertEqual(hardware.resolve({"profile": "custom", "custom": {"max_chip_dbm": 40}})["max_chip_dbm"], 22)
 
 
 class TestDriver(unittest.TestCase):
@@ -185,6 +203,43 @@ class TestDriver(unittest.TestCase):
         self.assertEqual(chip.log[-1][0], sx.SET_RX)       # listening again
         self.assertEqual(gpio.levels[prof["rx_en"]], 1)
         self.assertEqual(gpio.levels[prof["tx_en"]], 0)
+
+    def test_433_mhz_uses_sx1268_pa_table(self):
+        radio, chip, _, _ = make_radio()
+        radio.begin(SETTINGS)
+        self.assertIn([sx.SET_PA_CONFIG, 0x04, 0x06, 0x00, 0x01], chip.log)
+        radio.configure(dict(SETTINGS, freq_mhz=915.0))
+        self.assertEqual(chip.sent(sx.SET_PA_CONFIG)[-1], [sx.SET_PA_CONFIG, 0x04, 0x07, 0x00, 0x01])
+
+    def test_dio2_left_alone_when_pi_drives_the_switch(self):
+        radio, chip, _, _ = make_radio()
+        radio.begin(SETTINGS)
+        self.assertIn([sx.SET_DIO2_AS_RF_SWITCH, 0x00], chip.log)
+
+    def test_only_read_interrupts_are_cleared(self):
+        radio, chip, _, _ = make_radio()
+        radio.begin(SETTINGS)
+        radio.start_rx()
+        chip.deliver(b"<\xff\x01N0CALL>APZ:>hi")
+        radio.poll()
+        self.assertEqual(chip.sent(sx.CLEAR_IRQ_STATUS)[-1], [sx.CLEAR_IRQ_STATUS, 0x00, sx.IRQ_RX_DONE])
+
+    def test_failed_setup_gives_back_pins(self):
+        prof = dict(hardware.resolve({"profile": "meshadv_m33s"}))
+
+        class BrokenGpio(FakeGpio):
+            closed = False
+
+            def input(self, pin):
+                raise sx.RadioError("GPIO 16 is in use by another program")
+
+            def close(self):
+                BrokenGpio.closed = True
+
+        gpio = BrokenGpio()
+        with self.assertRaises(sx.RadioError):
+            sx.SX126x(prof, spi=FakeChip(gpio, prof["irq"]), gpio=gpio)
+        self.assertTrue(BrokenGpio.closed)
 
     def test_oversize_packet_refused(self):
         radio, _, _, _ = make_radio()

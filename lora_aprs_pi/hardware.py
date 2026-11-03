@@ -31,12 +31,14 @@ PROFILES = {
         "spi_bus": 0, "spi_dev": 0, "spi_hz": 2_000_000,
         "cs": 8, "reset": 25, "irq": 24, "busy": 23, "tx_en": -1, "rx_en": -1,
         "tcxo_volts": 1.8,
-        "pa_gain_db": 0, "max_chip_dbm": 22,
+        # Starts low on purpose: an unknown module may have a big amplifier after the chip.
+        "pa_gain_db": 0, "max_chip_dbm": 8,
     },
 }
 
 DEFAULT_PROFILE = "meshadv_m33s"   # the safe choice: a 30 dBm module on it just runs low
 PIN_KEYS = ("cs", "reset", "irq", "busy", "tx_en", "rx_en")
+CUSTOM_KEYS = PIN_KEYS + ("spi_bus", "spi_dev", "pa_gain_db", "max_chip_dbm", "tcxo_volts")
 CHIP_MIN_DBM = -9
 
 
@@ -45,12 +47,14 @@ def resolve(radio_cfg):
     name = radio_cfg.get("profile", DEFAULT_PROFILE)
     prof = dict(PROFILES.get(name, PROFILES[DEFAULT_PROFILE]))
     if name == "custom":
-        for key in PIN_KEYS + ("spi_bus", "spi_dev"):
-            if key in radio_cfg.get("custom", {}):
-                prof[key] = int(radio_cfg["custom"][key])
-        for key in ("pa_gain_db", "max_chip_dbm", "tcxo_volts"):
-            if key in radio_cfg.get("custom", {}):
-                prof[key] = float(radio_cfg["custom"][key])
+        custom = radio_cfg.get("custom", {})
+        for key in PIN_KEYS + ("spi_bus", "spi_dev", "max_chip_dbm"):
+            if key in custom:
+                prof[key] = int(custom[key])
+        for key in ("pa_gain_db", "tcxo_volts"):
+            if key in custom:
+                prof[key] = float(custom[key])
+        prof["max_chip_dbm"] = max(CHIP_MIN_DBM, min(22, prof["max_chip_dbm"]))
     return prof
 
 

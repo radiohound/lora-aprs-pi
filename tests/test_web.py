@@ -80,11 +80,48 @@ class TestWeb(unittest.TestCase):
         finally:
             self.post("/api/settings", {"web": {"clear_password": True}}, password="letmein")
 
+    def raw_post(self, body, **headers):
+        req = urllib.request.Request(self.base + "/api/beacon", data=body, headers=headers)
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
     def test_bad_json_rejected(self):
-        req = urllib.request.Request(self.base + "/api/settings", data=b"not json")
+        self.assertEqual(self.raw_post(b"not json", **{"Content-Type": "application/json"}), 400)
+
+    def test_plain_html_form_cannot_post(self):
+        # A form on another web site can only send text/plain or form encodings.
+        self.assertEqual(self.raw_post(b'{"x": 1}', **{"Content-Type": "text/plain"}), 403)
+
+    def test_other_site_origin_refused(self):
+        self.assertEqual(self.raw_post(b"{}", **{"Content-Type": "application/json",
+                                                 "Origin": "http://evil.example"}), 403)
+
+    def test_own_origin_allowed(self):
+        host = self.base.split("//")[1]
+        self.assertEqual(self.raw_post(b"{}", **{"Content-Type": "application/json",
+                                                 "Origin": f"http://{host}"}), 200)
+
+    def test_foreign_host_name(self):
+        # DNS rebinding: someone else's name pointing at the Pi gets no API...
+        req = urllib.request.Request(self.base + "/api/status", headers={"Host": "evil.example"})
         with self.assertRaises(urllib.error.HTTPError) as cm:
             urllib.request.urlopen(req)
-        self.assertEqual(cm.exception.code, 400)
+        self.assertEqual(cm.exception.code, 403)
+        # ...and a phone's captive-portal check is sent to the page by address.
+        conn = __import__("http.client").client.HTTPConnection("127.0.0.1", self.server.server_address[1])
+        conn.request("GET", "/generate_204", headers={"Host": "connectivitycheck.gstatic.com"})
+        r = conn.getresponse()
+        self.assertEqual((r.status, r.getheader("Location")),
+                         (302, f"http://127.0.0.1:{self.server.server_address[1]}/"))
+        conn.close()
+
+    def test_non_ascii_password_refused(self):
+        code, data = self.post("/api/settings", {"web": {"password": "pässwörd"}})
+        self.assertEqual(code, 422)
+        self.assertIn("web.password", data["errors"])
 
 
 if __name__ == "__main__":

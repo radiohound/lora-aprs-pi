@@ -45,6 +45,8 @@ class Wifi:
         self.enabled = enabled and shutil.which("nmcli") is not None
         self.settings = dict(settings)
         self.note = None
+        self._last_scan = []
+        self._last_scan_time = 0
         self._busy = threading.Lock()
         self._stop = threading.Event()
         if self.enabled:
@@ -90,7 +92,7 @@ class Wifi:
         try:
             rows = [_split(l) for l in self._nm("-t", "-f", "DEVICE,STATE,CONNECTION", "device").splitlines()]
         except (RuntimeError, subprocess.TimeoutExpired) as exc:
-            return {"available": True, "mode": "none", "note": str(exc)}
+            return {"available": True, "mode": "unknown", "note": str(exc)}
         row = next((r for r in rows if r[0] == IFACE), None)
         out = {"available": True, "hostname": socket.gethostname(), "mode": "none", "ssid": None, "ip": None,
                "note": self.note}
@@ -120,8 +122,27 @@ class Wifi:
             return None
 
     def scan(self):
+        """Networks in range, strongest first. While the Pi is the hotspot its WiFi can't
+        scan, so the list from just before the hotspot started is used instead."""
         if not self.enabled:
             return []
+        try:
+            nets = self._scan_now()
+        except (RuntimeError, subprocess.TimeoutExpired):
+            nets = []
+        if nets:
+            self._last_scan = nets
+        return nets or self._last_scan
+
+    def _remember_scan(self):
+        if time.time() - self._last_scan_time > 600:
+            self._last_scan_time = time.time()
+            try:
+                self._last_scan = self._scan_now() or self._last_scan
+            except (RuntimeError, subprocess.TimeoutExpired):
+                pass
+
+    def _scan_now(self):
         out = self._nm("-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes", timeout=30)
         best = {}
         for line in out.splitlines():
@@ -194,8 +215,11 @@ class Wifi:
                 continue
             st = self.status()
             mode = st.get("mode")
+            if mode == "unknown":
+                continue                       # nmcli hiccup: never act on it
             if mode == "client":
                 down_since = None
+                self._remember_scan()
             elif mode == "hotspot":
                 if time.time() - last_retry > RETRY_KNOWN_S and self._phones_on_hotspot() == 0:
                     last_retry = time.time()
@@ -204,6 +228,7 @@ class Wifi:
                 down_since = down_since or time.time()
                 if time.time() - started > BOOT_GRACE_S and time.time() - down_since > 30:
                     log.info("no WiFi network; starting the hotspot")
+                    self._remember_scan()
                     self.start_hotspot()
                     last_retry = time.time()
 

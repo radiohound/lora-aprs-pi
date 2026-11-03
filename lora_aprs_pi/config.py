@@ -32,8 +32,7 @@ DEFAULTS = {
         "bw_khz": 125,
         "cr": 5,
         "power_dbm": 20,              # at the antenna, approximate
-        "custom": {k: v for k, v in hardware.PROFILES["custom"].items()
-                   if k in hardware.PIN_KEYS + ("spi_bus", "spi_dev", "pa_gain_db", "max_chip_dbm")},
+        "custom": {k: hardware.PROFILES["custom"][k] for k in hardware.CUSTOM_KEYS},
     },
     "gps": {
         "device": "",                 # e.g. /dev/ttyACM0 or /dev/serial0; empty = no GPS
@@ -181,11 +180,19 @@ def check(cfg):
         rd["power_dbm"] = int(float(rd["power_dbm"]))
     except (TypeError, ValueError):
         errs["radio.power_dbm"] = "dBm at the antenna"
+    limits = {"pa_gain_db": (0, 40, "Amplifier gain, 0 to 40 dB"),
+              "max_chip_dbm": (-9, 22, "Chip limit, -9 to 22 dBm"),
+              "tcxo_volts": (0, 3.3, "TCXO volts, 0 (none) to 3.3"),
+              "spi_bus": (0, 6, "SPI bus number"), "spi_dev": (0, 2, "SPI device number")}
     for key, val in rd["custom"].items():
+        lo, hi, msg = limits.get(key, (-1, 27, "BCM GPIO 0 to 27, or -1 if not connected"))
         try:
-            rd["custom"][key] = float(val) if key == "pa_gain_db" else int(float(val))
+            num = float(val) if key in ("pa_gain_db", "tcxo_volts") else int(float(val))
+            if not lo <= num <= hi:
+                raise ValueError
+            rd["custom"][key] = num
         except (TypeError, ValueError):
-            errs["radio.custom." + key] = "A number (-1 if not connected)"
+            errs["radio.custom." + key] = msg
 
     gp["device"] = str(gp["device"]).strip()
     if gp["device"] and not gp["device"].startswith("/dev/"):
@@ -195,6 +202,9 @@ def check(cfg):
     except (TypeError, ValueError):
         errs["gps.baud"] = "Baud rate such as 9600"
 
+    pw = str(cfg["web"]["password"])
+    if pw and not (4 <= len(pw) <= 64 and pw.isascii() and pw.isprintable()):
+        errs["web.password"] = "4 to 64 plain characters (letters, digits, punctuation)"
     if not 1 <= len(str(wf["hotspot_ssid"])) <= 32:
         errs["wifi.hotspot_ssid"] = "1 to 32 characters"
     if not 8 <= len(str(wf["hotspot_password"])) <= 63:

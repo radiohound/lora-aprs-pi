@@ -61,12 +61,11 @@ class Station:
         self._close_radio()
 
     def _start_gps(self):
-        if self.gps:
-            self.gps.stop()
-            self.gps = None
+        old = self.gps
         dev = self.cfg["gps"]["device"]
-        if dev:
-            self.gps = Gps(dev, self.cfg["gps"]["baud"])
+        self.gps = Gps(dev, self.cfg["gps"]["baud"]) if dev else None
+        if old:
+            old.stop()
 
     def _open_radio(self):
         with self.lock:
@@ -86,7 +85,6 @@ class Station:
         self.radio = radio
         self.radio_state = "ok"
         self.radio_error = None
-        self.radio_profile = prof
         log.info("radio ready: %s, %.3f MHz SF%d", prof["label"], settings["freq_mhz"], settings["sf"])
 
     def _close_radio(self):
@@ -110,7 +108,10 @@ class Station:
 
                 got = self.radio.poll()
                 if got:
-                    self._received(*got)
+                    try:
+                        self._received(*got)
+                    except Exception:                 # a strange packet must never take the radio down
+                        log.exception("could not process a received packet")
 
                 if self.beacon_now_flag.is_set():
                     self.beacon_now_flag.clear()
@@ -156,8 +157,9 @@ class Station:
 
     def _our_position(self):
         bc = self.cfg["beacon"]
-        if bc["use_gps"] and self.gps:
-            f = self.gps.fix()
+        gps = self.gps                                 # the web thread may replace it at any moment
+        if bc["use_gps"] and gps:
+            f = gps.fix()
             if f["fresh"]:
                 alt = round(f["alt_m"] * 3.28084) if f["alt_m"] is not None else None
                 return f["lat"], f["lon"], alt
@@ -259,7 +261,8 @@ class Station:
         if new["gps"] != old["gps"]:
             self._start_gps()
         if new["wifi"] != old["wifi"] and self.on_wifi_settings:
-            self.on_wifi_settings(new["wifi"])
+            # in the background: restarting the hotspot would otherwise cut off this reply
+            threading.Timer(2.0, self.on_wifi_settings, args=(dict(new["wifi"]),)).start()
         return {}
 
     # ---- for the web page ----
@@ -272,10 +275,10 @@ class Station:
         with self.lock:
             cfg = self.cfg
             prof, rs = config.radio_settings(cfg)
-            gps = None
-            if self.gps:
-                gps = self.gps.fix()
-                gps["error"] = self.gps.error
+            gps, reader = None, self.gps
+            if reader:
+                gps = reader.fix()
+                gps["error"] = reader.error
             return {
                 "version": VERSION,
                 "simulate": self.simulate,

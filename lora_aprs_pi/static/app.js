@@ -342,7 +342,7 @@ $("#w-scan").addEventListener("click", async () => {
   try {
     const nets = (await api("/api/wifi/scan")).networks;
     list.replaceChildren();
-    if (!nets.length) list.append(el("li", "hint", "No networks found."));
+    if (!nets.length) list.append(el("li", "hint", "No networks found. While the Pi is its own hotspot it can't always scan; use Type a network name."));
     for (const n of nets) {
       const b = el("button");
       b.type = "button";
@@ -351,6 +351,11 @@ $("#w-scan").addEventListener("click", async () => {
       const li = el("li"); li.append(b); list.append(li);
     }
   } catch (e) { list.replaceChildren(el("li", "bad", e.message)); }
+});
+
+$("#w-other").addEventListener("click", () => {
+  const ssid = prompt("Network name (SSID)");
+  if (ssid) pickNetwork({ ssid: ssid.trim(), secure: true });
 });
 
 let picked = null;
