@@ -11,11 +11,15 @@ A LoRa APRS station for a Raspberry Pi with a LoRa HAT, set up from your phone.
   LACF stations show up on aprs.fi like any other.
 - Works as a digipeater: fill-in (WIDE1-1) or wide area (WIDE1-1 and WIDE2-N).
   LACF packets are repeated as LACF with this station's signal report added.
+- Shows when a digipeater repeats your beacon and, for LACF, how well it heard you.
+- Auto reduced power: lowers the beacon power while a digipeater reports a strong
+  signal, and raises it again when the margin gets thin.
 - Everything is set from a web page that works on a phone, with no internet needed.
 - If the Pi can't join WiFi, it starts its own hotspot. Join it from your phone
   and the setup page opens by itself.
 
-This version is a beacon station, receiver, receive-only iGate and digipeater.
+This version is a beacon station, receiver, receive-only iGate and digipeater,
+with auto reduced power.
 Gating messages from APRS-IS back to RF is planned next.
 
 ## What you need
@@ -37,11 +41,19 @@ cd lora-aprs-pi
 sudo ./install.sh
 ```
 
+While the repository is private, `git clone` asks for your GitHub username and a
+personal access token (not your password).
+
 The installer adds the few packages it needs (all from Raspberry Pi OS, no pip),
 turns on SPI, builds the LACF codec, and starts the station as a service. If it
 says SPI was just turned on, reboot once.
 
-To update later: `git pull` then `sudo ./install.sh` again. Your settings are kept.
+To update later: `git pull` then `sudo ./install.sh` again. Your settings are
+kept, and the station restarts on the new version.
+
+Tip: give the Pi its own name (`sudo raspi-config` → System Options → Hostname),
+for example `lora-aprs-pi`, so it's easy to find at `http://lora-aprs-pi.local`
+when you have several Pis.
 
 ## First setup from a phone
 
@@ -60,9 +72,9 @@ To update later: `git pull` then `sudo ./install.sh` again. Your settings are ke
 
 | Tab | What it shows |
 |---|---|
-| Status | Whether the radio is listening, the radio settings, power, GPS, and the next beacon. **Send beacon now** sends one straight away. |
-| Heard | Every packet heard, newest first: callsign, standard or LACF, signal, distance and bearing, and the raw packet. Your own beacons are marked Sent. |
-| Settings | Callsign, beacon, radio, GPS and the settings password. Changes apply as soon as you save. |
+| Status | Whether the radio is listening; radio settings; the power in use (including auto reduced power); APRS-IS login; digipeater mode; GPS; packet counts; and the next beacon. **Send beacon now** sends one straight away. |
+| Heard | Every packet, newest first, with signal, distance and bearing, and the raw packet. Tags show the format (Standard or Experimental LACF), **Gated** (sent to APRS-IS), **Repeated** (digipeated), **Sent** (your own transmissions, with their power), and **Your beacon, via …** (your beacon repeated by a digipeater, with its report when there is one). A packet that wasn't gated or repeated says why. |
+| Settings | Callsign, beacon (including auto reduced power), digipeater, iGate, radio, GPS and the settings password. Changes apply as soon as you save. |
 | WiFi | Join a network, or change and switch to the hotspot. |
 
 The bar under your callsign is the station's lamp: green while listening, amber
@@ -135,19 +147,36 @@ you (RSSI and SNR), next to how well you heard its repeat.
 Settings → Beacon → **Auto reduced power** lowers the beacon's power while a
 digipeater reports hearing you with plenty to spare, saving battery and
 channel. It works from the digipeater's LACF report, so it needs LACF (or
-alternate) beacons, a path such as `WIDE1-1`, and an LACF digipeater in range.
+alternate) beacons, a path such as `WIDE1-1`, and a digipeater in range that adds
+a signal report (RXT) when it repeats. Another LoRa APRS Pi does; so do the LACF
+builds of the iGate and tracker firmware. Dire Wolf's LACF build repeats LACF
+but doesn't add a report yet.
 
 - The margin is the reported SNR above what SF12 (or the set SF) needs, or for
   strong signals the RSSI above the receiver's sensitivity.
 - 13 dB or more to spare: the next beacon goes 2 dB lower. 10 to 13 dB: unchanged.
   Under 10 dB: back up by the shortfall plus 2 dB.
 - No report for two LACF beacons in a row: straight back to full power.
-- Never above the power set under Radio, never below 10 dBm at the antenna.
-  Digipeated packets always go out at the set power.
+- Never above the **Maximum power at the antenna** set under Radio, never below
+  10 dBm at the antenna. Digipeated packets always go out at the maximum.
+- The change is worked out as soon as a report arrives and applies to the next
+  beacon. The level is kept across restarts (for up to 6 hours, unless you change
+  the maximum).
+
+Where to see it working:
+- **Heard:** the "Your beacon, via …" entry shows the report, then
+  "Auto reduced power: next beacon about N dBm (this one went out at M dBm)".
+- **Status → Power:** "Beacons now about N dBm (auto reduced)" with the reason,
+  for example "K6ATV-4 heard the last beacon with 79 dB to spare".
+- **Settings → Radio:** a note under the Maximum power box gives the power in use.
+- **Heard → Sent** entries show the power each beacon went out at.
+
+To try it, send beacons at least 30 seconds apart: digipeaters skip an identical
+packet heard again within 30 seconds, so a quicker second beacon gets no report.
 
 ## Transmit power
 
-The page asks for the power you want **at the antenna**. E22 modules have an
+The page asks for the **maximum power at the antenna**. E22 modules have an
 amplifier after the radio chip, so the station sets the chip lower by the
 amplifier's gain, and never drives the chip above what the module can take:
 
@@ -189,11 +218,14 @@ make run        # a pretend radio at http://localhost:8080
 | `lora_aprs_pi/station.py` | The station: radio loop, heard list, beacons |
 | `lora_aprs_pi/igate.py` | APRS-IS connection, passcode, gating rules |
 | `lora_aprs_pi/digi.py` | Digipeater path rules and RXT signal reports |
+| `lora_aprs_pi/power.py` | Auto reduced power |
+| `lora_aprs_pi/sim_radio.py` | The pretend radio used by `make run` and the tests |
 | `lora_aprs_pi/web.py`, `static/` | The web page and its API |
 | `lora_aprs_pi/wifi.py` | WiFi and the hotspot, through NetworkManager |
 | `lora_aprs_pi/gps.py` | Optional NMEA GPS on a serial port |
 | `lacf/` | The LACF reference codec, copied from lora-aprs-ideas |
 | `/etc/lora-aprs-pi/config.json` | Your settings, on the Pi |
+| `/etc/lora-aprs-pi/power-state.json` | The auto reduced power level, kept across restarts |
 
 Logs: `journalctl -u lora-aprs-pi -f`
 
@@ -208,6 +240,18 @@ Logs: `journalctl -u lora-aprs-pi -f`
   Raspberry Pi OS Bookworm uses by default.
 - **Nothing heard**: check the antenna, and that the frequency, SF, bandwidth and
   coding rate match the stations around you.
+- **aprs.fi credits another iGate for a packet this station gated**: APRS-IS keeps
+  only the first copy of a packet and drops copies arriving in the next 30 seconds
+  or so. Whichever iGate is fastest gets the credit; the Heard tab still says
+  Gated.
+- **Your digipeating doesn't show on aprs.fi**: same reason. When an iGate hears the
+  original directly, the repeated copy arrives later and is dropped as a
+  duplicate. Check a nearby station's own log for `MYCALL*` in the path instead.
+- **"Your beacon, via …" shows no "heard you at" line**: that digipeater repeated
+  your beacon without a signal report (a standard repeat, or a digipeater that
+  doesn't add RXT), so auto reduced power can't use it.
+- **Beacon power stays at the maximum**: no report has come back yet. See Auto
+  reduced power above for what it needs.
 
 ## Licence
 
