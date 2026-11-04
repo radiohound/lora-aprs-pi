@@ -215,6 +215,12 @@ function heardItem(e) {
   if (e.digi_report) li.append(el("div", "comment",
     `${e.digi_report.digi} heard you at ${e.digi_report.rssi} dBm, SNR ${e.digi_report.snr.toFixed(1)} dB. ` +
     `You heard its repeat at ${Math.round(e.rssi)} dBm, SNR ${e.snr.toFixed(1)} dB.`));
+  if (e.power_next) li.append(el("div", "comment good",
+    e.power_next.to < e.power_next.from
+      ? `Auto reduced power: next beacon about ${e.power_next.to} dBm (this one went out at ${e.power_next.from} dBm).`
+      : e.power_next.to > e.power_next.from
+        ? `Auto reduced power: next beacon back up to about ${e.power_next.to} dBm (this one went out at ${e.power_next.from} dBm).`
+        : `Auto reduced power: next beacon stays at about ${e.power_next.to} dBm.`));
   if (e.error) li.append(el("div", "comment bad", e.error));
   else if (e.comment) li.append(el("div", "comment", e.comment));
   if (e.text) {

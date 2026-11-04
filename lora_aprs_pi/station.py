@@ -3,6 +3,7 @@
 import collections
 import copy
 import logging
+import os
 import random
 import threading
 import time
@@ -48,7 +49,9 @@ class Station:
         self.dedupe = igate.Dedupe()
         self.digi_seen = igate.Dedupe()     # packets already repeated (or queued) in the last 30 s
         self.digi_jobs = []                  # repeats waiting for their moment
-        self.auto_power = power.AutoPower(self.cfg["radio"]["power_dbm"])
+        state_dir = os.path.dirname(os.path.abspath(cfg_path))
+        self.auto_power = power.AutoPower(self.cfg["radio"]["power_dbm"],
+                                          os.path.join(state_dir, "power-state.json"))
         self.is_position_due = time.time() + FIRST_BEACON_DELAY_S
 
         self.on_wifi_settings = None       # set by the program to apply hotspot changes
@@ -203,7 +206,11 @@ class Station:
                 digi_call = hops[first["index"]].rstrip("*")
                 entry["digi_report"] = {"digi": digi_call, "rssi": rssi, "snr": snr}
                 rd = self.cfg["radio"]
-                self.auto_power.report(entry.get("info"), digi_call, rssi, snr, rd["sf"], rd["bw_khz"])
+                if self.cfg["beacon"]["auto_reduce_power"]:
+                    before = self.auto_power.base
+                    level = self.auto_power.report(entry.get("info"), digi_call, rssi, snr, rd["sf"], rd["bw_khz"])
+                    if level is not None:
+                        entry["power_next"] = {"from": before, "to": level}
 
     def _gate(self, entry):
         """Pass a received packet to APRS-IS when the iGate is on, and note why if not."""

@@ -60,6 +60,15 @@ class TestAutoPower(unittest.TestCase):
         self.assertEqual(self.beacon(ap, fmt="standard"), 28)
         self.assertEqual(self.beacon(ap, fmt="standard"), 28)   # no report expected, so no misses
 
+    def test_level_survives_a_restart(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "power-state.json")
+            ap = power.AutoPower(30, path)
+            self.beacon(ap, 20)
+            self.beacon(ap, 20)
+            self.assertEqual(power.AutoPower(30, path).level, 26)       # carried on
+            self.assertEqual(power.AutoPower(27, path).level, 27)       # maximum changed: start fresh
+
     def test_report_for_another_packet_ignored(self):
         ap = power.AutoPower(30)
         ap.sent("info", "lacf", "WIDE1-1")
@@ -100,6 +109,10 @@ class TestStation(unittest.TestCase):
                 self.assertTrue(heard["own_repeat"])
                 self.assertEqual(heard["repeated_by"], "N0DIGI")
                 self.assertEqual(heard["digi_report"], {"digi": "N0DIGI", "rssi": -60, "snr": 8.0})
+                # shown straight away, before the next beacon goes out
+                self.assertEqual(heard["power_next"], {"from": 30, "to": 28})
+                self.assertEqual(st.status()["beacon"]["auto_power"]["level_dbm"], 28)
+                self.assertIn("next beacon 2 dB lower", st.status()["beacon"]["auto_power"]["note"])
 
                 st.beacon_now()
                 end = time.time() + 5
