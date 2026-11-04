@@ -233,6 +233,8 @@ async function loadSettings() {
   $("#pw-state").textContent = data.settings.web.password_set
     ? "A password is set. Enter a new one to change it." : "No password: anyone on this network can change settings.";
   $("#clear-pw").hidden = !data.settings.web.password_set;
+  savedCallsign = data.settings.station.callsign;
+  showPasscode(savedCallsign);
   boardChanged();
 }
 
@@ -272,6 +274,24 @@ function showErrors(form, errors) {
   if (first) first.focus();
   return first;
 }
+
+// The passcode box shows the passcode worked out from the saved callsign, so it's
+// clear one is already in place. Typing a number overrides it.
+function showPasscode(savedCall) {
+  const box = $("[name='igate.passcode']");
+  const typedCall = $("[name='station.callsign']").value.trim().toUpperCase();
+  const auto = options && options.auto_passcode;
+  if (auto !== null && auto !== undefined && typedCall === savedCall) {
+    box.placeholder = `${auto} (from ${savedCall})`;
+    $("#passcode-hint").textContent =
+      `Filled in automatically from ${savedCall}. Type a number only to use a different passcode, or -1 to listen only.`;
+  } else {
+    box.placeholder = "Worked out from your callsign";
+    $("#passcode-hint").textContent = "Filled in automatically from your callsign once you save it.";
+  }
+}
+let savedCallsign = "";
+$("[name='station.callsign']").addEventListener("input", () => showPasscode(savedCallsign));
 
 function boardChanged() {
   if (!options) return;

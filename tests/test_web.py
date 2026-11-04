@@ -62,6 +62,16 @@ class TestWeb(unittest.TestCase):
         self.assertIn("meshadv_m33s", data["options"]["profiles"])
         self.assertEqual(data["settings"]["wifi"]["hotspot_password"], "")
 
+    def test_auto_passcode_only_for_saved_callsign(self):
+        _, _, body = self.get("/api/settings")
+        self.assertIsNone(json.loads(body)["options"]["auto_passcode"])      # N0CALL: none shown
+        self.post("/api/settings", {"station": {"callsign": "N0TST-3"}})
+        try:
+            _, _, body = self.get("/api/settings")
+            self.assertEqual(json.loads(body)["options"]["auto_passcode"], 15745)
+        finally:
+            self.post("/api/settings", {"station": {"callsign": "N0CALL"}})
+
     def test_bad_settings_give_field_errors(self):
         code, data = self.post("/api/settings", {"radio": {"sf": 99}})
         self.assertEqual(code, 422)

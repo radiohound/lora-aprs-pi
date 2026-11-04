@@ -9,7 +9,7 @@ import socket
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, hardware
+from . import config, hardware, igate
 
 log = logging.getLogger("web")
 
@@ -107,7 +107,11 @@ class Handler(BaseHTTPRequestHandler):
                 since = int(q.get("since", ["0"])[0] or 0)
                 return self._json({"heard": st.heard_since(since)})
             if url.path == "/api/settings":
-                return self._json({"settings": st.settings(), "options": {
+                settings = st.settings()
+                call = settings["station"]["callsign"]
+                return self._json({"settings": settings, "options": {
+                    # the passcode for the station's own saved callsign only
+                    "auto_passcode": igate.passcode(call) if call != "N0CALL" else None,
                     "profiles": {k: {"label": p["label"], "pa_gain_db": p["pa_gain_db"],
                                      "max_chip_dbm": p["max_chip_dbm"]} for k, p in hardware.PROFILES.items()},
                     "symbols": config.SYMBOLS}})
