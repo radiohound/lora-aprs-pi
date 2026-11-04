@@ -41,9 +41,6 @@ cd lora-aprs-pi
 sudo ./install.sh
 ```
 
-While the repository is private, `git clone` asks for your GitHub username and a
-personal access token (not your password).
-
 The installer adds the few packages it needs (all from Raspberry Pi OS, no pip),
 turns on SPI, builds the LACF codec, and starts the station as a service. If it
 says SPI was just turned on, reboot once.
