@@ -3,7 +3,8 @@
 A LoRa APRS station for a Raspberry Pi with a LoRa HAT, set up from your phone.
 
 - Receives standard LoRa APRS packets and the newer, smaller
-  [LACF](https://github.com/radiohound/lora-aprs-ideas) frames, and lists
+  [Experimental LACF](https://github.com/radiohound/lora-aprs-ideas) frames
+  (LACF for short below; the format is still a draft and may change), and lists
   everything it hears with signal strength, distance and bearing.
 - Sends a position beacon in standard format, LACF, or alternating between the two.
 - Works as an iGate: passes what it hears to APRS-IS, LACF packets included, so
@@ -70,7 +71,7 @@ just after transmitting, red when the radio has a problem (with the reason).
 ## Beacon formats
 
 - **Standard**: `3C FF 01` + text. Every LoRa APRS station can hear it.
-- **LACF**: `3C FF 02` + the compact frame, typically about 40% fewer bytes,
+- **Experimental LACF**: `3C FF 02` + the compact frame, typically about 40% fewer bytes,
   so less time on air. Only stations that understand LACF can hear it.
 - **Alternate**: one of each in turn, so everyone hears you and LACF stations
   get the shorter frame.

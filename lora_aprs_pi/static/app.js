@@ -100,7 +100,7 @@ function renderStatus(s) {
   $("#s-radio").className = r.state === "error" ? "bad" : "";
   $("#s-board").textContent = r.board;
   $("#s-power").textContent = `About ${r.antenna_dbm} dBm at the antenna (chip set to ${r.chip_dbm} dBm)`;
-  $("#s-lacf").textContent = s.lacf.available ? "Ready: sends and receives LACF frames" : s.lacf.error;
+  $("#s-lacf").textContent = s.lacf.available ? "Ready: sends and receives Experimental LACF frames" : s.lacf.error;
   $("#s-lacf").className = s.lacf.available ? "" : "bad";
 
   const g = s.gps;
@@ -143,14 +143,14 @@ function renderStatus(s) {
     `Auto reduced: about ${ap.level_dbm} dBm at the antenna (set maximum ${ap.max_dbm} dBm). ${ap.note}.`;
 
   const b = s.beacon;
-  const fmt = { standard: "standard", lacf: "LACF", alternate: "alternating standard and LACF" }[b.format];
+  const fmt = { standard: "standard", lacf: "Experimental LACF", alternate: "alternating standard and Experimental LACF" }[b.format];
   $("#s-beacon").textContent = b.enabled
     ? `Next beacon in ${inMinutes(b.next_in_s)}, ${fmt} format.` : "Automatic beacons are off.";
   $("#s-beacon-note").hidden = !b.note;
   $("#s-beacon-note").textContent = b.note || "";
   $("#s-beacon-last").hidden = !b.last;
   if (b.last) $("#s-beacon-last").textContent =
-    `Last sent ${ago(b.last.time)}, ${b.last.format === "lacf" ? "LACF" : "standard"}, ${b.last.bytes} bytes\n${b.last.text}`;
+    `Last sent ${ago(b.last.time)}, ${b.last.format === "lacf" ? "Experimental LACF" : "standard"}, ${b.last.bytes} bytes\n${b.last.text}`;
   $("#s-version").textContent = `LoRa APRS Pi ${s.version}, running ${inMinutes(s.uptime_s)}`;
 }
 
@@ -180,7 +180,7 @@ function heardItem(e) {
   if (e.repeating) l1.append(el("span", "tag sent", "Repeated"));
   if (e.own_repeat) l1.append(el("span", "tag gated", e.repeated_by ? `Your beacon, via ${e.repeated_by}` : "Your beacon"));
   if (e.gated) l1.append(el("span", "tag gated", "Gated"));
-  if (e.format === "lacf") l1.append(el("span", "tag lacf", "LACF"));
+  if (e.format === "lacf") l1.append(el("span", "tag lacf", "Experimental LACF"));
   else if (e.format === "standard") l1.append(el("span", "tag", "Standard"));
   l1.append(el("span", "when", ago(e.time)));
   li.append(l1);

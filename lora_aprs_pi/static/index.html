@@ -27,7 +27,7 @@
       <div><dt>Board</dt><dd id="s-board">–</dd></div>
       <div><dt>Power</dt><dd id="s-power">–</dd></div>
       <div id="s-autopower-row" hidden><dt>Beacon power</dt><dd id="s-autopower">–</dd></div>
-      <div><dt>LACF</dt><dd id="s-lacf">–</dd></div>
+      <div><dt>Experimental LACF</dt><dd id="s-lacf">–</dd></div>
       <div><dt>GPS</dt><dd id="s-gps">–</dd></div>
       <div><dt>APRS-IS</dt><dd id="s-igate">–</dd></div>
       <div><dt>Digipeater</dt><dd id="s-digi">–</dd></div>
@@ -89,14 +89,14 @@
         <label>Format
           <select name="beacon.format">
             <option value="standard">Standard (every LoRa APRS station can hear it)</option>
-            <option value="lacf">LACF (smaller; only LACF stations can hear it)</option>
-            <option value="alternate">Alternate standard and LACF</option>
+            <option value="lacf">Experimental LACF (smaller; only Experimental LACF stations can hear it)</option>
+            <option value="alternate">Alternate standard and Experimental LACF</option>
           </select>
         </label>
         <label class="check"><input type="checkbox" name="beacon.auto_reduce_power"> Auto reduced power</label>
         <p class="hint">Lowers the beacon power, never above the power set under Radio, while a digipeater
           reports hearing you with plenty to spare. Goes back up when the margin gets thin or no report comes back.
-          Needs LACF beacons (or alternate) and an LACF digipeater, since only LACF repeats carry the report.</p>
+          Needs Experimental LACF beacons (or alternate) and an Experimental LACF digipeater, since only Experimental LACF repeats carry the report.</p>
       </fieldset>
 
       <fieldset>
@@ -108,7 +108,7 @@
             <option value="wide">Wide area: repeat WIDE1-1 and WIDE2-N</option>
           </select>
         </label>
-        <p class="hint">Packets addressed to this station's callsign are repeated too. LACF packets are repeated as LACF, with this station's signal report added.</p>
+        <p class="hint">Packets addressed to this station's callsign are repeated too. Experimental LACF packets are repeated as Experimental LACF, with this station's signal report added.</p>
       </fieldset>
 
       <fieldset>
