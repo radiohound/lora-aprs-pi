@@ -80,6 +80,8 @@ when you have several Pis.
 The bar under your callsign is the station's lamp: green while listening, amber
 just after transmitting, red when the radio has a problem (with the reason).
 
+<img src="phone.png" alt="The station's Status page on a phone, showing auto reduced power at work" width="300">
+
 ## Beacon formats
 
 - **Standard**: `3C FF 01` + text. Every LoRa APRS station can hear it.
