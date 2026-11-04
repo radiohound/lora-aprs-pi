@@ -184,6 +184,7 @@ input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--fa
 }
 .tag.lacf { background: var(--lacf-soft); color: var(--lacf); border-color: transparent; }
 .tag.sent { background: var(--tx-soft); color: var(--tx); border-color: transparent; }
+.tag.gated { background: var(--listen-soft); color: var(--listen); border-color: transparent; }
 
 .signal { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: -2px; }
 .signal i { width: 4px; background: var(--line); border-radius: 1px; }

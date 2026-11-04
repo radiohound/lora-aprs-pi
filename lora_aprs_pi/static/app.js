@@ -111,7 +111,20 @@ function renderStatus(s) {
   else $("#s-gps").textContent = "Waiting for a fix";
 
   const c = s.counts;
-  $("#s-counts").textContent = `${c.rx_ok} received, ${c.rx_dropped} dropped, ${c.tx} sent`;
+  $("#s-counts").textContent = `${c.rx_ok} received, ${c.rx_dropped} dropped, ${c.tx} sent, ${c.gated} gated`;
+
+  const ig = s.igate;
+  const igText = { off: "iGate is off", "needs a callsign": "Set your callsign to start the iGate",
+                   connecting: "Connecting…", error: `Can't reach the server: ${ig.error}` };
+  if (ig.state === "connected") {
+    $("#s-igate").textContent = ig.verified
+      ? `Logged in to ${ig.server}, ${ig.sent} lines sent`
+      : `Logged in to ${ig.server} but NOT verified: packets won't be gated. Check the callsign or passcode.`;
+    $("#s-igate").className = ig.verified ? "good" : "bad";
+  } else {
+    $("#s-igate").textContent = igText[ig.state] || ig.state;
+    $("#s-igate").className = ig.state === "error" ? "bad" : "";
+  }
   if (!s.network) {
     $("#s-net").textContent = s.simulate ? "Not managed in simulate mode" : "Not managed by this program";
   } else {
@@ -155,6 +168,7 @@ function heardItem(e) {
   const l1 = el("div", "line1");
   l1.append(el("span", "who", e.source || (e.text ? "?" : "Unreadable packet")));
   if (e.dir === "tx") l1.append(el("span", "tag sent", "Sent"));
+  if (e.gated) l1.append(el("span", "tag gated", "Gated"));
   if (e.format === "lacf") l1.append(el("span", "tag lacf", "LACF"));
   else if (e.format === "standard") l1.append(el("span", "tag", "Standard"));
   l1.append(el("span", "when", ago(e.time)));
@@ -167,6 +181,7 @@ function heardItem(e) {
   if (e.distance_km !== undefined) what.push(`${e.distance_km} km at ${e.bearing}°`);
   if (e.altitude_ft !== undefined) what.push(`${e.altitude_ft} ft`);
   if (e.path) what.push(`via ${e.path}`);
+  if (e.not_gated) what.push(`not gated: ${e.not_gated}`);
   const w = el("div", "what");
   if (e.dir === "rx") { w.append(signalBars(e.rssi, e.snr), " "); }
   w.append(what.join(", "));

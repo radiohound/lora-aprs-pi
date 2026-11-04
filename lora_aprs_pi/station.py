@@ -6,13 +6,13 @@ import logging
 import threading
 import time
 
-from . import aprs, config, frames, hardware, lacf
+from . import aprs, config, frames, hardware, igate, lacf
 from .gps import Gps
 from .sx126x import RadioError
 
 log = logging.getLogger("station")
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 FIRST_BEACON_DELAY_S = 60
 RADIO_RETRY_S = 15
 
@@ -25,7 +25,7 @@ class Station:
         self.lock = threading.RLock()
         self.heard = collections.deque(maxlen=200)
         self.next_id = 1
-        self.counts = {"rx_ok": 0, "rx_dropped": 0, "tx": 0}
+        self.counts = {"rx_ok": 0, "rx_dropped": 0, "tx": 0, "gated": 0}
         self.started = time.time()
 
         self.radio = None
@@ -41,6 +41,10 @@ class Station:
         self.last_beacon = None
         self.beacon_note = None
 
+        self.aprsis = None                   # APRS-IS connection when the iGate is on
+        self.dedupe = igate.Dedupe()
+        self.is_position_due = time.time() + FIRST_BEACON_DELAY_S
+
         self.on_wifi_settings = None       # set by the program to apply hotspot changes
         self._stop = threading.Event()
         self._thread = None
@@ -49,6 +53,7 @@ class Station:
 
     def start(self):
         self._start_gps()
+        self._start_igate()
         self._thread = threading.Thread(target=self._loop, name="radio", daemon=True)
         self._thread.start()
 
@@ -58,12 +63,25 @@ class Station:
             self._thread.join(timeout=5)
         if self.gps:
             self.gps.stop()
+        if self.aprsis:
+            self.aprsis.stop()
         self._close_radio()
 
     def _start_gps(self):
         old = self.gps
         dev = self.cfg["gps"]["device"]
         self.gps = Gps(dev, self.cfg["gps"]["baud"]) if dev else None
+        if old:
+            old.stop()
+
+    def _start_igate(self):
+        old = self.aprsis
+        with self.lock:
+            ig, call = dict(self.cfg["igate"]), self.cfg["station"]["callsign"]
+        self.aprsis = None
+        if ig["enabled"] and call != "N0CALL":
+            code = ig["passcode"] if ig["passcode"] != "" else igate.passcode(call)
+            self.aprsis = igate.AprsIs(ig["server"], ig["port"], call, code)
         if old:
             old.stop()
 
@@ -118,6 +136,8 @@ class Station:
                     self._beacon(manual=True)
                 elif time.time() >= self.beacon_due:
                     self._beacon(manual=False)
+                if self.aprsis and time.time() >= self.is_position_due:
+                    self._position_to_aprsis()
 
                 self._stop.wait(0.02)
             except (RadioError, OSError) as exc:
@@ -150,10 +170,39 @@ class Station:
                 if pkt:
                     entry.update(pkt)
                     self._add_distance(entry)
+                self._gate(entry)
         with self.lock:
             self.counts["rx_ok" if entry.get("text") else "rx_dropped"] += 1
         self._remember(entry)
         log.info("RX %s %s (RSSI %.0f, SNR %.1f)", entry["format"], entry.get("text") or entry["error"], rssi, snr)
+
+    def _gate(self, entry):
+        """Pass a received packet to APRS-IS when the iGate is on, and note why if not."""
+        conn = self.aprsis
+        if not conn:
+            return
+        call = self.cfg["station"]["callsign"]
+        text, reason = igate.check(entry["text"], call)
+        if text is None:
+            entry["not_gated"] = reason
+            return
+        if not self.dedupe.is_new(text):
+            entry["not_gated"] = "already gated in the last 30 s"
+            return
+        conn.send(igate.upload_line(text, call))
+        entry["gated"] = True
+        with self.lock:
+            self.counts["gated"] += 1
+
+    def _position_to_aprsis(self):
+        """The station's own position, sent straight to APRS-IS (no radio time used)."""
+        with self.lock:
+            bc, call = dict(self.cfg["beacon"]), self.cfg["station"]["callsign"]
+            self.is_position_due = time.time() + max(10, bc["interval_min"]) * 60
+        pos = self._our_position()
+        if self.aprsis and pos:
+            info = aprs.position_info(pos[0], pos[1], bc["symbol"], bc["comment"], pos[2])
+            self.aprsis.send(f"{call}>{aprs.TOCALL},TCPIP*:{info}")
 
     def _our_position(self):
         bc = self.cfg["beacon"]
@@ -260,6 +309,8 @@ class Station:
                 self.beacon_due = min(self.beacon_due, time.time() + new["beacon"]["interval_min"] * 60)
         if new["gps"] != old["gps"]:
             self._start_gps()
+        if new["igate"] != old["igate"] or new["station"] != old["station"]:
+            self._start_igate()
         if new["wifi"] != old["wifi"] and self.on_wifi_settings:
             # in the background: restarting the hotspot would otherwise cut off this reply
             threading.Timer(2.0, self.on_wifi_settings, args=(dict(new["wifi"]),)).start()
@@ -299,4 +350,7 @@ class Station:
                     "last": self.last_beacon, "note": self.beacon_note,
                 },
                 "counts": dict(self.counts),
+                "igate": dict(self.aprsis.status(), enabled=True) if self.aprsis else {
+                    "enabled": cfg["igate"]["enabled"],
+                    "state": "off" if not cfg["igate"]["enabled"] else "needs a callsign"},
             }

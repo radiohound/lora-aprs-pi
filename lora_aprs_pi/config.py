@@ -34,6 +34,12 @@ DEFAULTS = {
         "power_dbm": 20,              # at the antenna, approximate
         "custom": {k: hardware.PROFILES["custom"][k] for k in hardware.CUSTOM_KEYS},
     },
+    "igate": {
+        "enabled": False,
+        "server": "rotate.aprs2.net",
+        "port": 14580,
+        "passcode": "",               # empty = worked out from the callsign
+    },
     "gps": {
         "device": "",                 # e.g. /dev/ttyACM0 or /dev/serial0; empty = no GPS
         "baud": 9600,
@@ -193,6 +199,29 @@ def check(cfg):
             rd["custom"][key] = num
         except (TypeError, ValueError):
             errs["radio.custom." + key] = msg
+
+    ig = cfg["igate"]
+    ig["enabled"] = bool(ig["enabled"])
+    ig["server"] = str(ig["server"]).strip()
+    if not re.match(r"^[A-Za-z0-9.-]{1,253}$", ig["server"]):
+        errs["igate.server"] = "A server name such as rotate.aprs2.net"
+    try:
+        ig["port"] = int(ig["port"])
+        if not 1 <= ig["port"] <= 65535:
+            raise ValueError
+    except (TypeError, ValueError):
+        errs["igate.port"] = "A port number such as 14580"
+    if str(ig["passcode"]).strip() == "":
+        ig["passcode"] = ""
+    else:
+        try:
+            ig["passcode"] = int(ig["passcode"])
+            if not -1 <= ig["passcode"] <= 32767:
+                raise ValueError
+        except (TypeError, ValueError):
+            errs["igate.passcode"] = "Leave empty, or a number from -1 to 32767"
+    if ig["enabled"] and st["callsign"] == "N0CALL":
+        errs["station.callsign"] = "Enter your callsign to use the iGate"
 
     gp["device"] = str(gp["device"]).strip()
     if gp["device"] and not gp["device"].startswith("/dev/"):

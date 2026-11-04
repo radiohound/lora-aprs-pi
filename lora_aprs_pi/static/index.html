@@ -28,6 +28,7 @@
       <div><dt>Power</dt><dd id="s-power">–</dd></div>
       <div><dt>LACF</dt><dd id="s-lacf">–</dd></div>
       <div><dt>GPS</dt><dd id="s-gps">–</dd></div>
+      <div><dt>APRS-IS</dt><dd id="s-igate">–</dd></div>
       <div><dt>Packets</dt><dd id="s-counts">–</dd></div>
       <div><dt>Network</dt><dd id="s-net">–</dd></div>
     </dl>
@@ -89,6 +90,23 @@
             <option value="lacf">LACF (smaller; only LACF stations can hear it)</option>
             <option value="alternate">Alternate standard and LACF</option>
           </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>iGate</legend>
+        <label class="check"><input type="checkbox" name="igate.enabled"> Send what this station hears to APRS-IS</label>
+        <p class="hint">For licensed amateurs. The station also puts its own position on APRS-IS, without using air time.</p>
+        <div class="pair">
+          <label>Server
+            <input name="igate.server" spellcheck="false" autocapitalize="off" placeholder="rotate.aprs2.net">
+          </label>
+          <label>Port
+            <input name="igate.port" type="number" inputmode="numeric">
+          </label>
+        </div>
+        <label>Passcode (leave empty to work it out from your callsign)
+          <input name="igate.passcode" inputmode="numeric" autocomplete="off">
         </label>
       </fieldset>
 

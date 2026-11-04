@@ -6,12 +6,14 @@ A LoRa APRS station for a Raspberry Pi with a LoRa HAT, set up from your phone.
   [LACF](https://github.com/radiohound/lora-aprs-ideas) frames, and lists
   everything it hears with signal strength, distance and bearing.
 - Sends a position beacon in standard format, LACF, or alternating between the two.
+- Works as an iGate: passes what it hears to APRS-IS, LACF packets included, so
+  LACF stations show up on aprs.fi like any other.
 - Everything is set from a web page that works on a phone, with no internet needed.
 - If the Pi can't join WiFi, it starts its own hotspot. Join it from your phone
   and the setup page opens by itself.
 
-This first version is a beacon station and receiver. iGate (to APRS-IS) and
-digipeating are planned next; the code is laid out for them.
+This version is a beacon station, receiver and receive-only iGate. Gating
+messages from APRS-IS back to RF, and digipeating, are planned next.
 
 ## What you need
 
@@ -74,6 +76,27 @@ just after transmitting, red when the radio has a problem (with the reason).
 Beacons use the plain (uncompressed) position format, which LACF carries in its
 lossless position block.
 
+## iGate (APRS-IS)
+
+Turn on **Send what this station hears to APRS-IS** under Settings → iGate.
+Gating to APRS-IS is for licensed amateurs.
+
+- **Passcode:** leave it empty and the station works it out from its own
+  callsign, the same way other APRS software does. Enter one only if you want a
+  different one, or -1 for a listen-only login. The Status tab says whether the
+  server accepted the login (verified) or not.
+- **What gets gated:** every packet heard, except those with NOGATE, RFONLY,
+  TCPIP or TCPXX in the path, general queries (`?APRS?`), the station's own
+  packets, and repeats of the same packet within 30 seconds. Third-party packets
+  are unwrapped and the same rules applied to the packet inside. The Heard tab
+  marks each packet **Gated**, or says why it wasn't.
+- **LACF:** LACF frames are decoded back to ordinary APRS text before upload.
+- **Uploads are tagged `qAO`** (a receive-only iGate), since this version doesn't
+  send APRS-IS traffic back over the radio.
+- **Its own position** also goes to APRS-IS directly at the beacon interval
+  (at least every 10 minutes apart), without using any air time, whether or not
+  the radio beacon is on.
+
 ## Transmit power
 
 The page asks for the power you want **at the antenna**. E22 modules have an
@@ -116,6 +139,7 @@ make run        # a pretend radio at http://localhost:8080
 | `lora_aprs_pi/lacf.py` | Python wrapper for the LACF C codec |
 | `lora_aprs_pi/aprs.py` | Building beacons, reading received packets |
 | `lora_aprs_pi/station.py` | The station: radio loop, heard list, beacons |
+| `lora_aprs_pi/igate.py` | APRS-IS connection, passcode, gating rules |
 | `lora_aprs_pi/web.py`, `static/` | The web page and its API |
 | `lora_aprs_pi/wifi.py` | WiFi and the hotspot, through NetworkManager |
 | `lora_aprs_pi/gps.py` | Optional NMEA GPS on a serial port |
