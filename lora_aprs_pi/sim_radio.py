@@ -45,8 +45,9 @@ class SimRadio:
         if lacf.available() and random.random() < 0.5:
             frame = lacf.encode(text) or frame
         if random.random() < 0.05:
-            return (None, -128.0, -14.5)                   # an occasional CRC error
-        return (frame, round(random.uniform(-125, -80), 1), round(random.uniform(-12, 9), 2))
+            return (None, -128.0, -14.5, 0)                # an occasional CRC error
+        return (frame, round(random.uniform(-125, -80), 1), round(random.uniform(-12, 9), 2),
+                random.randint(-400, 400))
 
     def transmit(self, payload):
         s = self.settings

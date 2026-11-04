@@ -180,16 +180,16 @@ class TestDriver(unittest.TestCase):
         radio.start_rx()
         self.assertIsNone(radio.poll())
         chip.deliver(b"<\xff\x01N0CALL>APZ:>hi", rssi_b=200, snr_b=0xF6)
-        payload, rssi, snr = radio.poll()
+        payload, rssi, snr, fo = radio.poll()
         self.assertEqual(payload, b"<\xff\x01N0CALL>APZ:>hi")
-        self.assertEqual((rssi, snr), (-100.0, -2.5))
+        self.assertEqual((rssi, snr, fo), (-100.0, -2.5, 0))
 
     def test_crc_error_gives_no_payload(self):
         radio, chip, _, _ = make_radio()
         radio.begin(SETTINGS)
         radio.start_rx()
         chip.deliver(b"garbled", extra_irq=sx.IRQ_CRC_ERR)
-        payload, rssi, snr = radio.poll()
+        payload, rssi, snr, fo = radio.poll()
         self.assertIsNone(payload)
 
     def test_transmit_then_back_to_receive(self):
@@ -240,6 +240,16 @@ class TestDriver(unittest.TestCase):
         with self.assertRaises(sx.RadioError):
             sx.SX126x(prof, spi=FakeChip(gpio, prof["irq"]), gpio=gpio)
         self.assertTrue(BrokenGpio.closed)
+
+    def test_frequency_error_as_radiolib(self):
+        radio, chip, _, _ = make_radio()
+        radio.begin(SETTINGS)
+        radio.start_rx()
+        # -1000 in 20-bit two's complement at 125 kHz: 1000 * 125000 * 155 / 160e6 = 121 Hz low
+        raw = (1 << 20) - 1000
+        chip.regs.update({0x076B: raw >> 16, 0x076C: (raw >> 8) & 0xFF, 0x076D: raw & 0xFF})
+        chip.deliver(b"<\xff\x01N0CALL>APZ:>hi")
+        self.assertEqual(radio.poll()[3], -121)
 
     def test_oversize_packet_refused(self):
         radio, _, _, _ = make_radio()

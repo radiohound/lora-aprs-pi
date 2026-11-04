@@ -43,6 +43,7 @@ READ_BUFFER = 0x1E
 
 # Registers
 REG_SYNC_WORD = 0x0740
+REG_FREQ_ERROR = 0x076B          # not in the datasheet; RadioLib reads it the same way
 REG_RX_GAIN = 0x08AC
 REG_OCP = 0x08E7
 
@@ -366,7 +367,7 @@ class SX126x:
         self._cmd(SET_RX, 0xFF, 0xFF, 0xFF)                # continuous receive
 
     def poll(self):
-        """None, or a received packet as (payload bytes or None on CRC error, RSSI, SNR)."""
+        """None, or a received packet as (payload or None on CRC error, RSSI, SNR, frequency offset Hz)."""
         if not self._irq_pending():
             return None
         irq = self.irq_status()
@@ -376,12 +377,21 @@ class SX126x:
         if not irq & IRQ_RX_DONE:
             return None
         rssi, snr = self._packet_status()
+        fo = self._freq_error_hz()
         if irq & (IRQ_CRC_ERR | IRQ_HEADER_ERR):
-            return (None, rssi, snr)
+            return (None, rssi, snr, fo)
         length, start = self._read(GET_RX_BUFFER_STATUS, 2)
         self._wait_busy()
         data = self.spi.xfer([READ_BUFFER, start, 0] + [0] * length)[3:]
-        return (bytes(data), rssi, snr)
+        return (bytes(data), rssi, snr, fo)
+
+    def _freq_error_hz(self):
+        """How far the sender was off frequency, as RadioLib's getFrequencyError() works it out."""
+        b = self.read_reg(REG_FREQ_ERROR, 3)
+        raw = ((b[0] << 16) | (b[1] << 8) | b[2]) & 0x0FFFFF
+        if raw & 0x80000:
+            raw -= 1 << 20
+        return int(raw * float(self.settings["bw_khz"]) * 1000 * 155.0 / 160_000_000)
 
     def _packet_status(self):
         d = self._read(GET_PACKET_STATUS, 3)

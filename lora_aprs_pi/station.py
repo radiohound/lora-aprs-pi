@@ -3,16 +3,19 @@
 import collections
 import copy
 import logging
+import random
 import threading
 import time
 
-from . import aprs, config, frames, hardware, igate, lacf
+from . import aprs, config, digi, frames, hardware, igate, lacf
+from .sx126x import airtime_s
 from .gps import Gps
 from .sx126x import RadioError
 
 log = logging.getLogger("station")
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
+DIGI_DELAY_S = (0.5, 2.0)      # random wait before repeating, so digipeaters don't all key up at once
 FIRST_BEACON_DELAY_S = 60
 RADIO_RETRY_S = 15
 
@@ -25,7 +28,7 @@ class Station:
         self.lock = threading.RLock()
         self.heard = collections.deque(maxlen=200)
         self.next_id = 1
-        self.counts = {"rx_ok": 0, "rx_dropped": 0, "tx": 0, "gated": 0}
+        self.counts = {"rx_ok": 0, "rx_dropped": 0, "tx": 0, "gated": 0, "repeated": 0}
         self.started = time.time()
 
         self.radio = None
@@ -43,6 +46,8 @@ class Station:
 
         self.aprsis = None                   # APRS-IS connection when the iGate is on
         self.dedupe = igate.Dedupe()
+        self.digi_seen = igate.Dedupe()     # packets already repeated (or queued) in the last 30 s
+        self.digi_jobs = []                  # repeats waiting for their moment
         self.is_position_due = time.time() + FIRST_BEACON_DELAY_S
 
         self.on_wifi_settings = None       # set by the program to apply hotspot changes
@@ -136,6 +141,7 @@ class Station:
                     self._beacon(manual=True)
                 elif time.time() >= self.beacon_due:
                     self._beacon(manual=False)
+                self._run_digi_jobs()
                 if self.aprsis and time.time() >= self.is_position_due:
                     self._position_to_aprsis()
 
@@ -155,7 +161,7 @@ class Station:
 
     # ---- receiving ----
 
-    def _received(self, raw, rssi, snr):
+    def _received(self, raw, rssi, snr, freq_offset=None):
         entry = {"dir": "rx", "rssi": rssi, "snr": snr}
         if raw is None:
             entry.update(format="-", error="CRC error (damaged packet)", text=None)
@@ -171,6 +177,7 @@ class Station:
                     entry.update(pkt)
                     self._add_distance(entry)
                 self._gate(entry)
+                self._maybe_repeat(entry, raw, rssi, snr, freq_offset)
         with self.lock:
             self.counts["rx_ok" if entry.get("text") else "rx_dropped"] += 1
         self._remember(entry)
@@ -193,6 +200,63 @@ class Station:
         entry["gated"] = True
         with self.lock:
             self.counts["gated"] += 1
+
+    def _maybe_repeat(self, entry, raw, rssi, snr, freq_offset):
+        """Queue a repeat when the digipeater serves this packet's path."""
+        mode = self.cfg["digi"]["mode"]
+        if mode == "off" or entry.get("format") not in ("standard", "lacf"):
+            return
+        call = self.cfg["station"]["callsign"]
+        if call == "N0CALL":
+            return
+        new_tnc2, reason = digi.decide(entry["text"], call, mode)
+        if new_tnc2 is None:
+            if reason not in ("digipeater off", "no hops left"):
+                entry["not_repeated"] = reason
+            return
+        if not self.digi_seen.is_new(entry["text"]):
+            entry["not_repeated"] = "already repeated in the last 30 s"
+            return
+        self.digi_jobs.append({
+            "due": time.monotonic() + random.uniform(*DIGI_DELAY_S), "heard": time.monotonic(),
+            "format": entry["format"], "raw": raw, "tnc2": new_tnc2, "source": entry.get("source"),
+            "rssi": rssi, "snr": snr, "freq_offset": freq_offset})
+        entry["repeating"] = True
+
+    def _run_digi_jobs(self):
+        now = time.monotonic()
+        due = [j for j in self.digi_jobs if j["due"] <= now]
+        if not due:
+            return
+        self.digi_jobs = [j for j in self.digi_jobs if j["due"] > now]
+        for job in due:
+            self._repeat(job)
+
+    def _repeat(self, job):
+        """Send one repeat. The RXT tuple is filled in now, as spec 11 asks: its time to hop
+        runs from the end of reception to the end of this transmission."""
+        with self.lock:
+            call = self.cfg["station"]["callsign"]
+            rd = dict(self.cfg["radio"])
+
+        def tuple_for(length):
+            on_air = airtime_s(length, rd["sf"], rd["bw_khz"], rd["cr"], config.PREAMBLE)
+            tth_ms = (time.monotonic() - job["heard"] + on_air) * 1000
+            return digi.rxt_tuple(job["rssi"], job["snr"], job["freq_offset"], tth_ms, rd["sf"], rd["bw_khz"])
+
+        frame = digi.build_frame(job["raw"], job["format"], job["tnc2"], call, tuple_for(len(job["raw"]) + 13))
+        if frame and job["format"] == "lacf":
+            frame = digi.build_frame(job["raw"], "lacf", job["tnc2"], call, tuple_for(len(frame)))
+        if not frame:
+            log.info("not repeated (frame too long or not relayable): %s", job["tnc2"])
+            return
+        on_air = self.radio.transmit(frame)
+        with self.lock:
+            self.counts["repeated"] += 1
+        self._remember({"dir": "tx", "kind": "repeat", "format": job["format"], "bytes": len(frame),
+                        "text": job["tnc2"], "error": None, "source": job["source"],
+                        "airtime_ms": round(on_air * 1000)})
+        log.info("REPEAT %s %d bytes: %s", job["format"], len(frame), job["tnc2"])
 
     def _position_to_aprsis(self):
         """The station's own position, sent straight to APRS-IS (no radio time used)."""
@@ -350,6 +414,7 @@ class Station:
                     "last": self.last_beacon, "note": self.beacon_note,
                 },
                 "counts": dict(self.counts),
+                "digi": {"mode": cfg["digi"]["mode"], "waiting": len(self.digi_jobs)},
                 "igate": dict(self.aprsis.status(), enabled=True) if self.aprsis else {
                     "enabled": cfg["igate"]["enabled"],
                     "state": "off" if not cfg["igate"]["enabled"] else "needs a callsign"},

@@ -111,7 +111,11 @@ function renderStatus(s) {
   else $("#s-gps").textContent = "Waiting for a fix";
 
   const c = s.counts;
-  $("#s-counts").textContent = `${c.rx_ok} received, ${c.rx_dropped} dropped, ${c.tx} sent, ${c.gated} gated`;
+  $("#s-counts").textContent =
+    `${c.rx_ok} received, ${c.rx_dropped} dropped, ${c.tx} sent, ${c.repeated} repeated, ${c.gated} gated`;
+  const dg = s.digi;
+  $("#s-digi").textContent = { off: "Off", "fill-in": "Fill-in (WIDE1-1)", wide: "Wide area (WIDE1-1 and WIDE2-N)" }[dg.mode]
+    + (dg.waiting ? `, ${dg.waiting} waiting to go out` : "");
 
   const ig = s.igate;
   const igText = { off: "iGate is off", "needs a callsign": "Set your callsign to start the iGate",
@@ -167,7 +171,8 @@ function heardItem(e) {
   const li = el("li", e.dir === "tx" ? "sent" : e.text ? "" : "dropped");
   const l1 = el("div", "line1");
   l1.append(el("span", "who", e.source || (e.text ? "?" : "Unreadable packet")));
-  if (e.dir === "tx") l1.append(el("span", "tag sent", "Sent"));
+  if (e.dir === "tx") l1.append(el("span", "tag sent", e.kind === "repeat" ? "Repeated" : "Sent"));
+  if (e.repeating) l1.append(el("span", "tag sent", "Repeated"));
   if (e.gated) l1.append(el("span", "tag gated", "Gated"));
   if (e.format === "lacf") l1.append(el("span", "tag lacf", "LACF"));
   else if (e.format === "standard") l1.append(el("span", "tag", "Standard"));
@@ -182,6 +187,7 @@ function heardItem(e) {
   if (e.altitude_ft !== undefined) what.push(`${e.altitude_ft} ft`);
   if (e.path) what.push(`via ${e.path}`);
   if (e.not_gated) what.push(`not gated: ${e.not_gated}`);
+  if (e.not_repeated) what.push(`not repeated: ${e.not_repeated}`);
   const w = el("div", "what");
   if (e.dir === "rx") { w.append(signalBars(e.rssi, e.snr), " "); }
   w.append(what.join(", "));

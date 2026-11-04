@@ -77,6 +77,9 @@ def _load():
     lib.hb_relay.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p,
                              ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
     lib.hb_relay.restype = ctypes.c_size_t
+    lib.hb_relay_to.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                                ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+    lib.hb_relay_to.restype = ctypes.c_size_t
 
     n = lib.hb_load_list(LIST_PATH.encode())
     if n != 62:
@@ -143,6 +146,17 @@ def decode(frame):
         "relay_tuples": info.rxt.n if info.has_rxt else 0,
     }
     return out.raw[:n], details
+
+
+def relay_to(frame, new_tnc2, relay_call, tuple4):
+    """Spec 11 relay with the path the digipeater chose. new_tnc2 is the received packet
+    with the new path (holding relay_call + '*'). None if the frame must not be relayed."""
+    lib = _need()
+    out = ctypes.create_string_buffer(MAX_FRAME + 1)
+    with _lock:
+        n = lib.hb_relay_to(frame, len(frame), new_tnc2, len(new_tnc2), relay_call,
+                            bytes(tuple4), out, MAX_FRAME)
+    return out.raw[:n] if n else None
 
 
 def relay(frame, relay_call, tuple4):

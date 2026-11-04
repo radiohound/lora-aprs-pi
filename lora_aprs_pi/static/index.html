@@ -29,6 +29,7 @@
       <div><dt>LACF</dt><dd id="s-lacf">–</dd></div>
       <div><dt>GPS</dt><dd id="s-gps">–</dd></div>
       <div><dt>APRS-IS</dt><dd id="s-igate">–</dd></div>
+      <div><dt>Digipeater</dt><dd id="s-digi">–</dd></div>
       <div><dt>Packets</dt><dd id="s-counts">–</dd></div>
       <div><dt>Network</dt><dd id="s-net">–</dd></div>
     </dl>
@@ -91,6 +92,18 @@
             <option value="alternate">Alternate standard and LACF</option>
           </select>
         </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Digipeater</legend>
+        <label>Repeat packets
+          <select name="digi.mode">
+            <option value="off">Off</option>
+            <option value="fill-in">Fill-in: repeat WIDE1-1</option>
+            <option value="wide">Wide area: repeat WIDE1-1 and WIDE2-N</option>
+          </select>
+        </label>
+        <p class="hint">Packets addressed to this station's callsign are repeated too. LACF packets are repeated as LACF, with this station's signal report added.</p>
       </fieldset>
 
       <fieldset>

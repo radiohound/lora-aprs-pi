@@ -34,6 +34,9 @@ DEFAULTS = {
         "power_dbm": 20,              # at the antenna, approximate
         "custom": {k: hardware.PROFILES["custom"][k] for k in hardware.CUSTOM_KEYS},
     },
+    "digi": {
+        "mode": "off",                # off | fill-in | wide
+    },
     "igate": {
         "enabled": False,
         "server": "rotate.aprs2.net",
@@ -199,6 +202,11 @@ def check(cfg):
             rd["custom"][key] = num
         except (TypeError, ValueError):
             errs["radio.custom." + key] = msg
+
+    if cfg["digi"]["mode"] not in ("off", "fill-in", "wide"):
+        errs["digi.mode"] = "Choose a digipeater mode"
+    if cfg["digi"]["mode"] != "off" and st["callsign"] == "N0CALL":
+        errs["station.callsign"] = "Enter your callsign to use the digipeater"
 
     ig = cfg["igate"]
     ig["enabled"] = bool(ig["enabled"])

@@ -8,12 +8,14 @@ A LoRa APRS station for a Raspberry Pi with a LoRa HAT, set up from your phone.
 - Sends a position beacon in standard format, LACF, or alternating between the two.
 - Works as an iGate: passes what it hears to APRS-IS, LACF packets included, so
   LACF stations show up on aprs.fi like any other.
+- Works as a digipeater: fill-in (WIDE1-1) or wide area (WIDE1-1 and WIDE2-N).
+  LACF packets are repeated as LACF with this station's signal report added.
 - Everything is set from a web page that works on a phone, with no internet needed.
 - If the Pi can't join WiFi, it starts its own hotspot. Join it from your phone
   and the setup page opens by itself.
 
-This version is a beacon station, receiver and receive-only iGate. Gating
-messages from APRS-IS back to RF, and digipeating, are planned next.
+This version is a beacon station, receiver, receive-only iGate and digipeater.
+Gating messages from APRS-IS back to RF is planned next.
 
 ## What you need
 
@@ -97,6 +99,29 @@ Gating to APRS-IS is for licensed amateurs.
   (at least every 10 minutes apart), without using any air time, whether or not
   the radio beacon is on.
 
+## Digipeater
+
+Choose under Settings → Digipeater:
+
+| Mode | Repeats |
+|---|---|
+| Off | nothing |
+| Fill-in | `WIDE1-1`, and packets addressed to this station's callsign |
+| Wide area | also `WIDE2-1` and `WIDE2-2` |
+
+- The first hop not yet used decides, the same rule spec 11 uses for LACF:
+  `WIDE1-1` and `WIDE2-1` become `MYCALL*`, `WIDE2-2` becomes `MYCALL*,WIDE2-1`.
+- Never repeated: our own packets, a packet already repeated in the last 30
+  seconds, one this station has already repeated (seen in its path), and any
+  path that breaks the WIDEn-N rule. Bigger floods (`WIDE3`+) are not served.
+- `NOGATE` and `RFONLY` packets **are** repeated: those words mean "keep it on
+  RF", not "don't repeat".
+- A repeat waits a random 0.5 to 2 seconds, so digipeaters that heard the same
+  packet don't all transmit at once.
+- **LACF packets** are repeated as LACF by copying their content and adding this
+  station's RXT tuple: signal strength, SNR, frequency offset and time to hop.
+  Standard packets are repeated as standard text.
+
 ## Transmit power
 
 The page asks for the power you want **at the antenna**. E22 modules have an
@@ -140,6 +165,7 @@ make run        # a pretend radio at http://localhost:8080
 | `lora_aprs_pi/aprs.py` | Building beacons, reading received packets |
 | `lora_aprs_pi/station.py` | The station: radio loop, heard list, beacons |
 | `lora_aprs_pi/igate.py` | APRS-IS connection, passcode, gating rules |
+| `lora_aprs_pi/digi.py` | Digipeater path rules and RXT signal reports |
 | `lora_aprs_pi/web.py`, `static/` | The web page and its API |
 | `lora_aprs_pi/wifi.py` | WiFi and the hotspot, through NetworkManager |
 | `lora_aprs_pi/gps.py` | Optional NMEA GPS on a serial port |
