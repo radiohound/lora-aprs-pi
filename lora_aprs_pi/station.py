@@ -7,7 +7,7 @@ import random
 import threading
 import time
 
-from . import aprs, config, digi, frames, hardware, igate, lacf
+from . import aprs, config, digi, frames, hardware, igate, lacf, power
 from .sx126x import airtime_s
 from .gps import Gps
 from .sx126x import RadioError
@@ -48,6 +48,7 @@ class Station:
         self.dedupe = igate.Dedupe()
         self.digi_seen = igate.Dedupe()     # packets already repeated (or queued) in the last 30 s
         self.digi_jobs = []                  # repeats waiting for their moment
+        self.auto_power = power.AutoPower(self.cfg["radio"]["power_dbm"])
         self.is_position_due = time.time() + FIRST_BEACON_DELAY_S
 
         self.on_wifi_settings = None       # set by the program to apply hotspot changes
@@ -176,12 +177,33 @@ class Station:
                 if pkt:
                     entry.update(pkt)
                     self._add_distance(entry)
+                    self._own_repeat(entry)
                 self._gate(entry)
                 self._maybe_repeat(entry, raw, rssi, snr, freq_offset)
         with self.lock:
             self.counts["rx_ok" if entry.get("text") else "rx_dropped"] += 1
         self._remember(entry)
         log.info("RX %s %s (RSSI %.0f, SNR %.1f)", entry["format"], entry.get("text") or entry["error"], rssi, snr)
+
+    def _own_repeat(self, entry):
+        """Our own packet coming back from a digipeater: note who repeated it and, for LACF,
+        how well that digipeater heard us (its RXT report)."""
+        call = self.cfg["station"]["callsign"]
+        if entry.get("source", "").upper() != call:
+            return
+        hops = [h for h in entry.get("path", "").split(",") if h]
+        used = [h.rstrip("*") for h in hops if h.endswith("*")]
+        entry["own_repeat"] = True
+        entry["repeated_by"] = used[-1] if used else None
+        rxt = (entry.get("lacf") or {}).get("rxt") or []
+        if rxt:
+            first = min(rxt, key=lambda t: t["index"])        # the first relay heard us directly
+            if first["index"] < len(hops):
+                rssi, snr = digi.rxt_signal(first["bytes"])
+                digi_call = hops[first["index"]].rstrip("*")
+                entry["digi_report"] = {"digi": digi_call, "rssi": rssi, "snr": snr}
+                rd = self.cfg["radio"]
+                self.auto_power.report(entry.get("info"), digi_call, rssi, snr, rd["sf"], rd["bw_khz"])
 
     def _gate(self, entry):
         """Pass a received packet to APRS-IS when the iGate is on, and note why if not."""
@@ -327,15 +349,27 @@ class Station:
         except ValueError as exc:
             self.beacon_note = f"Beacon not sent: {exc}"
             return
-        on_air = self.radio.transmit(frame)
+        info = tnc2.decode().partition(":")[2]
+        chip = None
+        level = None
+        if bc["auto_reduce_power"]:
+            prof, _ = config.radio_settings(cfg)
+            self.auto_power.set_max(cfg["radio"]["power_dbm"])
+            level = self.auto_power.next_level(hardware.antenna_power(hardware.CHIP_MIN_DBM, prof))
+            chip = hardware.chip_power(level, prof)
+        on_air = self.radio.transmit(frame, chip)
+        if bc["auto_reduce_power"]:
+            self.auto_power.sent(info, used, bc["path"])
         self.last_beacon = {"time": time.time(), "format": used, "bytes": len(frame),
-                            "airtime_ms": round(on_air * 1000), "text": tnc2.decode()}
+                            "airtime_ms": round(on_air * 1000), "text": tnc2.decode(),
+                            "power_dbm": level}
         self.beacon_note = None
         with self.lock:
             self.counts["tx"] += 1
         self._remember({"dir": "tx", "format": used, "bytes": len(frame), "text": tnc2.decode(),
                         "error": None, "source": call, "airtime_ms": round(on_air * 1000),
-                        "type": "position", "lat": round(pos[0], 5), "lon": round(pos[1], 5)})
+                        "type": "position", "lat": round(pos[0], 5), "lon": round(pos[1], 5),
+                        "power_dbm": level})
         log.info("TX %s beacon, %d bytes, %d ms: %s", used, len(frame), on_air * 1000, tnc2.decode())
 
     # ---- settings ----
@@ -412,6 +446,8 @@ class Station:
                     "enabled": cfg["beacon"]["enabled"], "format": cfg["beacon"]["format"],
                     "next_in_s": max(0, round(self.beacon_due - time.time())) if cfg["beacon"]["enabled"] else None,
                     "last": self.last_beacon, "note": self.beacon_note,
+                    "auto_power": {"on": cfg["beacon"]["auto_reduce_power"], "level_dbm": self.auto_power.level,
+                                   "max_dbm": cfg["radio"]["power_dbm"], "note": self.auto_power.note},
                 },
                 "counts": dict(self.counts),
                 "digi": {"mode": cfg["digi"]["mode"], "waiting": len(self.digi_jobs)},

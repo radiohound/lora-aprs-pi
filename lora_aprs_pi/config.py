@@ -24,6 +24,7 @@ DEFAULTS = {
         "comment": "LoRa APRS Pi",
         "path": "WIDE1-1",
         "format": "standard",         # standard | lacf | alternate
+        "auto_reduce_power": False,   # lower beacon power while a digipeater reports a strong signal
     },
     "radio": {
         "profile": hardware.DEFAULT_PROFILE,
@@ -154,6 +155,7 @@ def check(cfg):
     bc["path"] = str(bc["path"]).strip().upper().replace(" ", "")
     if not PATH_RE.match(bc["path"]) or not _wide_ok(bc["path"]):
         errs["beacon.path"] = "Like WIDE1-1 or WIDE1-1,WIDE2-1, or empty"
+    bc["auto_reduce_power"] = bool(bc["auto_reduce_power"])
     if bc["format"] not in ("standard", "lacf", "alternate"):
         errs["beacon.format"] = "Choose a format"
     if len(str(bc["symbol"])) != 2:

@@ -26,6 +26,7 @@
       <div><dt>Radio</dt><dd id="s-radio">–</dd></div>
       <div><dt>Board</dt><dd id="s-board">–</dd></div>
       <div><dt>Power</dt><dd id="s-power">–</dd></div>
+      <div id="s-autopower-row" hidden><dt>Beacon power</dt><dd id="s-autopower">–</dd></div>
       <div><dt>LACF</dt><dd id="s-lacf">–</dd></div>
       <div><dt>GPS</dt><dd id="s-gps">–</dd></div>
       <div><dt>APRS-IS</dt><dd id="s-igate">–</dd></div>
@@ -92,6 +93,10 @@
             <option value="alternate">Alternate standard and LACF</option>
           </select>
         </label>
+        <label class="check"><input type="checkbox" name="beacon.auto_reduce_power"> Auto reduced power</label>
+        <p class="hint">Lowers the beacon power, never above the power set under Radio, while a digipeater
+          reports hearing you with plenty to spare. Goes back up when the margin gets thin or no report comes back.
+          Needs LACF beacons (or alternate) and an LACF digipeater, since only LACF repeats carry the report.</p>
       </fieldset>
 
       <fieldset>

@@ -137,6 +137,11 @@ function renderStatus(s) {
       : n.mode === "client" ? `${n.ssid}, ${n.ip || "no address yet"}` : (n.note || "Not connected");
   }
 
+  const ap = s.beacon.auto_power;
+  $("#s-autopower-row").hidden = !ap.on;
+  if (ap.on) $("#s-autopower").textContent =
+    `Auto reduced: about ${ap.level_dbm} dBm at the antenna (set maximum ${ap.max_dbm} dBm). ${ap.note}.`;
+
   const b = s.beacon;
   const fmt = { standard: "standard", lacf: "LACF", alternate: "alternating standard and LACF" }[b.format];
   $("#s-beacon").textContent = b.enabled
@@ -173,6 +178,7 @@ function heardItem(e) {
   l1.append(el("span", "who", e.source || (e.text ? "?" : "Unreadable packet")));
   if (e.dir === "tx") l1.append(el("span", "tag sent", e.kind === "repeat" ? "Repeated" : "Sent"));
   if (e.repeating) l1.append(el("span", "tag sent", "Repeated"));
+  if (e.own_repeat) l1.append(el("span", "tag gated", e.repeated_by ? `Your beacon, via ${e.repeated_by}` : "Your beacon"));
   if (e.gated) l1.append(el("span", "tag gated", "Gated"));
   if (e.format === "lacf") l1.append(el("span", "tag lacf", "LACF"));
   else if (e.format === "standard") l1.append(el("span", "tag", "Standard"));
@@ -182,6 +188,7 @@ function heardItem(e) {
   const what = [];
   if (e.dir === "rx") what.push(`${Math.round(e.rssi)} dBm, SNR ${e.snr.toFixed(1)} dB`);
   if (e.dir === "tx" && e.airtime_ms) what.push(`${e.airtime_ms} ms on air`);
+  if (e.dir === "tx" && e.power_dbm !== undefined && e.power_dbm !== null) what.push(`about ${e.power_dbm} dBm`);
   if (e.type && e.text) what.push(e.type);
   if (e.distance_km !== undefined) what.push(`${e.distance_km} km at ${e.bearing}°`);
   if (e.altitude_ft !== undefined) what.push(`${e.altitude_ft} ft`);
@@ -193,6 +200,9 @@ function heardItem(e) {
   w.append(what.join(", "));
   li.append(w);
 
+  if (e.digi_report) li.append(el("div", "comment",
+    `${e.digi_report.digi} heard you at ${e.digi_report.rssi} dBm, SNR ${e.digi_report.snr.toFixed(1)} dB. ` +
+    `You heard its repeat at ${Math.round(e.rssi)} dBm, SNR ${e.snr.toFixed(1)} dB.`));
   if (e.error) li.append(el("div", "comment bad", e.error));
   else if (e.comment) li.append(el("div", "comment", e.comment));
   if (e.text) {

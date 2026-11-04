@@ -144,6 +144,9 @@ def decode(frame):
         "compressed": info.kind >= 2,
         "table_version": info.ver,
         "relay_tuples": info.rxt.n if info.has_rxt else 0,
+        # each relay's report: the path element it belongs to, and its 4 RXT bytes
+        "rxt": [{"index": info.rxt.idx[i], "bytes": list(info.rxt.t[i])}
+                for i in range(info.rxt.n)] if info.has_rxt else [],
     }
     return out.raw[:n], details
 

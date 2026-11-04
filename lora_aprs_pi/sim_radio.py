@@ -25,6 +25,7 @@ class SimRadio:
     def __init__(self, prof=None):
         self.settings = None
         self.sent = []
+        self.sent_power = []
         self.next_rx = time.monotonic() + 3
 
     def begin(self, settings):
@@ -49,8 +50,9 @@ class SimRadio:
         return (frame, round(random.uniform(-125, -80), 1), round(random.uniform(-12, 9), 2),
                 random.randint(-400, 400))
 
-    def transmit(self, payload):
+    def transmit(self, payload, chip_dbm=None):
         s = self.settings
+        self.sent_power.append(s["chip_dbm"] if chip_dbm is None else min(chip_dbm, s["chip_dbm"]))
         t = airtime_s(len(payload), int(s["sf"]), float(s["bw_khz"]), int(s["cr"]), int(s["preamble"]))
         self.sent.append(bytes(payload))
         return t

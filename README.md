@@ -122,6 +122,28 @@ Choose under Settings → Digipeater:
   station's RXT tuple: signal strength, SNR, frequency offset and time to hop.
   Standard packets are repeated as standard text.
 
+## Hearing your beacon repeated
+
+When a digipeater repeats this station's beacon and the station hears the
+repeat, the Heard tab marks it **Your beacon, via** the digipeater. If the
+repeat is LACF, it also shows the digipeater's report of how well it heard
+you (RSSI and SNR), next to how well you heard its repeat.
+
+## Auto reduced power
+
+Settings → Beacon → **Auto reduced power** lowers the beacon's power while a
+digipeater reports hearing you with plenty to spare, saving battery and
+channel. It works from the digipeater's LACF report, so it needs LACF (or
+alternate) beacons, a path such as `WIDE1-1`, and an LACF digipeater in range.
+
+- The margin is the reported SNR above what SF12 (or the set SF) needs, or for
+  strong signals the RSSI above the receiver's sensitivity.
+- 13 dB or more to spare: the next beacon goes 2 dB lower. 10 to 13 dB: unchanged.
+  Under 10 dB: back up by the shortfall plus 2 dB.
+- No report for two LACF beacons in a row: straight back to full power.
+- Never above the power set under Radio, never below 10 dBm at the antenna.
+  Digipeated packets always go out at the set power.
+
 ## Transmit power
 
 The page asks for the power you want **at the antenna**. E22 modules have an

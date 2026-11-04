@@ -398,13 +398,16 @@ class SX126x:
         snr = d[1] - 256 if d[1] > 127 else d[1]
         return (-d[0] / 2.0, snr / 4.0)
 
-    def transmit(self, payload):
-        """Send one packet, wait until it's out, then go back to receive. Returns seconds on air."""
+    def transmit(self, payload, chip_dbm=None):
+        """Send one packet, wait until it's out, then go back to receive. Returns seconds on air.
+        chip_dbm sets the power for this packet only (auto reduced power); default is the setting."""
         if not 0 < len(payload) <= 255:
             raise RadioError("packet must be 1 to 255 bytes")
         s = self.settings
+        chip = int(max(-9, min(22, s["chip_dbm"] if chip_dbm is None else min(chip_dbm, s["chip_dbm"]))))
         expect = airtime_s(len(payload), int(s["sf"]), float(s["bw_khz"]), int(s["cr"]), int(s["preamble"]))
         self._cmd(SET_STANDBY, 0x00)
+        self._cmd(SET_TX_PARAMS, chip & 0xFF, 0x04)
         self.clear_irq()
         self._wait_busy()
         self.spi.xfer([WRITE_BUFFER, 0x00, *payload])

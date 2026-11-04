@@ -52,6 +52,11 @@ def rxt_time_to_hop(ms, sf, bw_khz):
     return _clamp(math.log(max(1.0, ms / unit + 1.0)) / math.log(1.08))
 
 
+def rxt_signal(tuple4):
+    """A relay's report back in dBm and dB: (RSSI, SNR)."""
+    return tuple4[0] - 130, tuple4[1] * 0.5 - 24
+
+
 def rxt_tuple(rssi, snr, freq_offset_hz, tth_ms, sf, bw_khz):
     return bytes([rxt_rssi(rssi), rxt_snr(snr), rxt_freq_offset(freq_offset_hz or 0),
                   rxt_time_to_hop(tth_ms, sf, bw_khz)])
