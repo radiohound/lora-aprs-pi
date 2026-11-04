@@ -99,7 +99,19 @@ function renderStatus(s) {
   $("#s-radio").textContent = r.state === "error" ? r.error : radioText;
   $("#s-radio").className = r.state === "error" ? "bad" : "";
   $("#s-board").textContent = r.board;
-  $("#s-power").textContent = `About ${r.antenna_dbm} dBm at the antenna (chip set to ${r.chip_dbm} dBm)`;
+  const apNow = s.beacon.auto_power;
+  if (apNow.on && apNow.level_dbm < apNow.max_dbm) {
+    $("#s-power").textContent =
+      `Beacons now about ${apNow.level_dbm} dBm at the antenna (auto reduced). Set maximum ${r.antenna_dbm} dBm, used for repeats.`;
+  } else {
+    $("#s-power").textContent = `About ${r.antenna_dbm} dBm at the antenna (chip set to ${r.chip_dbm} dBm)`;
+  }
+  // Next to the power box in Settings: the box is the maximum; say what beacons actually use.
+  const pn = $("#power-now");
+  pn.hidden = !apNow.on;
+  if (apNow.on) pn.textContent = apNow.level_dbm < apNow.max_dbm
+    ? `Auto reduced power is on: beacons are going out at about ${apNow.level_dbm} dBm right now. This box is the maximum.`
+    : `Auto reduced power is on: beacons are at the maximum right now. This box is the maximum.`;
   $("#s-lacf").textContent = s.lacf.available ? "Ready: sends and receives Experimental LACF frames" : s.lacf.error;
   $("#s-lacf").className = s.lacf.available ? "" : "bad";
 
