@@ -55,6 +55,9 @@ IRQ_HEADER_ERR = 0x0020
 IRQ_CRC_ERR = 0x0040
 IRQ_TIMEOUT = 0x0200
 IRQ_USED = IRQ_TX_DONE | IRQ_RX_DONE | IRQ_HEADER_ERR | IRQ_CRC_ERR | IRQ_TIMEOUT
+IRQ_PREAMBLE = 0x0004
+IRQ_HEADER_VALID = 0x0010
+IRQ_ARRIVING = IRQ_PREAMBLE | IRQ_HEADER_VALID   # a packet is coming in: flagged, but not on DIO1
 
 BW_CODES = {7.8: 0x00, 10.4: 0x08, 15.6: 0x01, 20.8: 0x09, 31.25: 0x02,
             41.7: 0x0A, 62.5: 0x03, 125: 0x04, 250: 0x05, 500: 0x06}
@@ -230,6 +233,7 @@ class SX126x:
     """One SX1262/SX1268. Not thread safe: one thread owns the radio."""
 
     def __init__(self, prof, spi=None, gpio=None):
+        self._arriving_since = None        # when a packet started arriving (noise readings pause)
         self.p = prof
         self.settings = None
         self.spi = None
@@ -349,7 +353,8 @@ class SX126x:
         self._packet_params(255)
         self.write_reg(REG_SYNC_WORD, sync_word_bytes(int(s.get("sync_word", 0x12))))
         self._cmd(SET_BUFFER_BASE_ADDRESS, 0x00, 0x00)
-        self._cmd(SET_DIO_IRQ_PARAMS, IRQ_USED >> 8, IRQ_USED & 0xFF,
+        flagged = IRQ_USED | IRQ_ARRIVING
+        self._cmd(SET_DIO_IRQ_PARAMS, flagged >> 8, flagged & 0xFF,
                   IRQ_USED >> 8, IRQ_USED & 0xFF, 0, 0, 0, 0)
         self.write_reg(REG_RX_GAIN, [0x96])                # boosted RX gain
 
@@ -400,7 +405,19 @@ class SX126x:
         return (-d[0] / 2.0, snr / 4.0)
 
     def rssi_now(self):
-        """The signal level on the channel right now (dBm): the noise floor when nothing is being sent."""
+        """The level on the channel right now (dBm), or None while a packet is arriving, so that
+        the noise floor isn't the stations' own signals. A preamble that never turns into a
+        packet (a false detection) is cleared once a long packet would have ended."""
+        irq = self.irq_status()
+        if irq & IRQ_ARRIVING:
+            now = time.monotonic()
+            if self._arriving_since is None:
+                self._arriving_since = now
+            s = self.settings
+            if now - self._arriving_since < airtime_s(120, int(s["sf"]), float(s["bw_khz"]), int(s["cr"])):
+                return None
+            self.clear_irq(IRQ_ARRIVING)
+        self._arriving_since = None
         return -self._read(GET_RSSI_INST, 1)[0] / 2.0
 
     def transmit(self, payload, chip_dbm=None):

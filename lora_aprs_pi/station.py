@@ -126,8 +126,8 @@ class Station:
         events, now = self.events, time.monotonic()
         if now >= self.noise_due and self.radio and hasattr(self.radio, "rssi_now"):
             self.noise_due = now + 1
-            dbm = self.radio.rssi_now()
-            if -160 <= dbm < 0:
+            dbm = self.radio.rssi_now()             # None while a packet is arriving
+            if dbm is not None and -160 <= dbm < 0:
                 self.noise.append(dbm)
                 if events:
                     events.noise(dbm)

@@ -81,6 +81,8 @@ class FakeChip:
             self.buffer[data[1]:data[1] + len(data) - 2] = bytes(data[2:])
         elif op == sx.SET_TX:
             self._raise(sx.IRQ_TX_DONE)
+        elif op == sx.GET_RSSI_INST:
+            out[2] = 220                                 # -110 dBm
         return out
 
     def close(self):
@@ -260,3 +262,36 @@ class TestDriver(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNoiseReading(unittest.TestCase):
+    """The noise floor must not be the stations' own packets."""
+
+    def setUp(self):
+        self.radio, self.chip, self.gpio, _ = make_radio()
+        self.radio.begin(SETTINGS)
+        self.radio.start_rx()
+
+    def test_arriving_flags_are_read_but_do_not_wake_dio1(self):
+        p = self.chip.sent(sx.SET_DIO_IRQ_PARAMS)[-1]
+        flagged, dio1 = (p[1] << 8) | p[2], (p[3] << 8) | p[4]
+        self.assertTrue(flagged & sx.IRQ_ARRIVING)
+        self.assertFalse(dio1 & sx.IRQ_ARRIVING)
+
+    def test_quiet_channel_is_measured(self):
+        self.assertEqual(self.radio.rssi_now(), -110.0)
+
+    def test_no_reading_while_a_packet_arrives(self):
+        self.chip.irq = sx.IRQ_PREAMBLE | sx.IRQ_HEADER_VALID
+        self.assertIsNone(self.radio.rssi_now())
+        self.chip.irq = 0                                 # the packet was read and the flags cleared
+        self.assertEqual(self.radio.rssi_now(), -110.0)
+
+    def test_false_preamble_is_given_up_on(self):
+        from unittest import mock
+        self.chip.irq = sx.IRQ_PREAMBLE
+        with mock.patch("time.monotonic", return_value=1000.0):
+            self.assertIsNone(self.radio.rssi_now())
+        with mock.patch("time.monotonic", return_value=1010.0):   # longer than a 120-byte SF12 packet
+            self.assertEqual(self.radio.rssi_now(), -110.0)
+        self.assertEqual(self.chip.irq, 0)
