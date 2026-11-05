@@ -295,6 +295,12 @@ def public(cfg):
     out["web"]["password"] = ""
     out["web"]["password_set"] = bool(cfg["web"]["password"])
     out["wifi"]["hotspot_password"] = ""
-    out["mqtt"]["password"] = ""
-    out["mqtt"]["password_set"] = bool(cfg["mqtt"]["password"])
+    # The map's shared login is public on purpose (printed in the docs, pre-filled in the ESP32
+    # iGate), so it is shown; any other MQTT password is kept back like the others.
+    mq = cfg["mqtt"]
+    public_login = (mq["username"], mq["password"]) == (DEFAULTS["mqtt"]["username"], DEFAULTS["mqtt"]["password"])
+    out["mqtt"]["password_public"] = public_login
+    out["mqtt"]["password_set"] = bool(mq["password"])
+    if not public_login:
+        out["mqtt"]["password"] = ""
     return out

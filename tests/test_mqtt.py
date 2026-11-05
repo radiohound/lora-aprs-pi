@@ -166,9 +166,18 @@ class TestSettings(unittest.TestCase):
         self.assertIn("mqtt.topic", errs)
         self.assertIn("station.callsign", errs)
 
-    def test_password_not_shown(self):
+    def test_public_map_login_is_shown(self):
         out = config.public(config.load("/nonexistent"))
-        self.assertEqual((out["mqtt"]["password"], out["mqtt"]["password_set"]), ("", True))
+        self.assertEqual((out["mqtt"]["password"], out["mqtt"]["password_public"]), ("lora-aprs", True))
+
+    def test_own_password_is_not_shown(self):
+        cfg = config.load("/nonexistent")
+        cfg["mqtt"].update(username="walter", password="s3cret")
+        out = config.public(cfg)
+        self.assertEqual((out["mqtt"]["password"], out["mqtt"]["password_public"], out["mqtt"]["password_set"]),
+                         ("", False, True))
+        cfg["mqtt"].update(username="igate", password="s3cret")          # the shared user name with a private password
+        self.assertEqual(config.public(cfg)["mqtt"]["password"], "")
 
 
 class TestClient(unittest.TestCase):

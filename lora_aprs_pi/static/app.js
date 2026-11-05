@@ -273,10 +273,12 @@ async function loadSettings() {
   $("#pw-state").textContent = data.settings.web.password_set
     ? "A password is set. Enter a new one to change it." : "No password: anyone on this network can change settings.";
   $("#clear-pw").hidden = !data.settings.web.password_set;
-  const mqPw = $("[name='mqtt.password']");
-  mqPw.placeholder = data.settings.mqtt.password_set ? "Saved" : "";
-  $("#mqtt-pw-hint").textContent = data.settings.mqtt.password_set
-    ? "The password is saved and not shown (for the map it is the shared public one). Leave the box empty to keep it." : "";
+  const mq = data.settings.mqtt, mqPw = $("[name='mqtt.password']");
+  mqPw.type = mq.password_public ? "text" : "password";
+  mqPw.placeholder = mq.password_set && !mq.password_public ? "Saved" : "";
+  $("#mqtt-pw-hint").textContent = mq.password_public
+    ? "This is the shared public login for the map, so it isn't a secret."
+    : mq.password_set ? "Your password is saved and not shown. Leave the box empty to keep it." : "";
   savedCallsign = data.settings.station.callsign;
   showPasscode(savedCallsign);
   boardChanged();
