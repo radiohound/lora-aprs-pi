@@ -16,7 +16,7 @@ import time
 log = logging.getLogger("wifi")
 
 HOTSPOT = "lora-aprs-pi-hotspot"     # NetworkManager connection name
-HOTSPOT_IP = "10.42.0.1"             # NetworkManager's address for shared (hotspot) mode
+HOTSPOT_IP = "192.168.4.1"           # the hotspot's address: the usual one for setup hotspots (ESP32 boards use it too)
 IFACE = "wlan0"
 BOOT_GRACE_S = 90                    # how long to wait for a known network after boot
 RETRY_KNOWN_S = 300                  # while idle in hotspot mode, try known networks this often
@@ -65,7 +65,7 @@ class Wifi:
         ssid, pw = self.settings["hotspot_ssid"], self.settings["hotspot_password"]
         props = ["connection.autoconnect", "no", "802-11-wireless.ssid", ssid,
                  "802-11-wireless.mode", "ap", "802-11-wireless.band", "bg",
-                 "ipv4.method", "shared", "ipv6.method", "ignore",
+                 "ipv4.method", "shared", "ipv4.addresses", f"{HOTSPOT_IP}/24", "ipv6.method", "ignore",
                  "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", pw]
         try:
             names = [_split(l)[0] for l in self._nm("-t", "-f", "NAME", "connection", "show").splitlines()]

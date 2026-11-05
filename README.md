@@ -60,7 +60,7 @@ when you have several Pis.
    (the installer prints the exact address).
 2. If not, wait two minutes after power-up, then join the WiFi network
    **LoRa-APRS-Pi** (password `loraaprs`). The setup page should pop up; if it
-   doesn't, open `http://10.42.0.1`.
+   doesn't, open `http://192.168.4.1`.
 3. On **Settings**: enter your callsign, choose your board, set your position,
    and save.
 4. On **WiFi**: pick your home network to put the Pi on it, and change the

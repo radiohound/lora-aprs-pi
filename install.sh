@@ -58,7 +58,7 @@ if command -v nmcli >/dev/null; then
   # While the Pi runs its hotspot, every web address leads to the setup page,
   # so a phone that joins the hotspot pops the page up by itself.
   mkdir -p /etc/NetworkManager/dnsmasq-shared.d
-  echo 'address=/#/10.42.0.1' > /etc/NetworkManager/dnsmasq-shared.d/lora-aprs-pi.conf
+  echo 'address=/#/192.168.4.1' > /etc/NetworkManager/dnsmasq-shared.d/lora-aprs-pi.conf
 else
   echo
   echo "NetworkManager isn't running, so the WiFi page and hotspot fallback are off."
