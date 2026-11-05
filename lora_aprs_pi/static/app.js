@@ -98,6 +98,17 @@ function renderStatus(s) {
 
   $("#s-radio").textContent = r.state === "error" ? r.error : radioText;
   $("#s-radio").className = r.state === "error" ? "bad" : "";
+  // What the receiver hears between packets. Around -110 to -120 dBm is a quiet channel; much higher
+  // means something near the antenna is drowning out weak stations.
+  const nf = r.noise;
+  if (!nf) $("#s-noise").textContent = "Measuring…";
+  else {
+    const loud = nf.avg_dbm > -95, noisy = nf.avg_dbm > -105;
+    $("#s-noise").textContent = `${nf.avg_dbm} dBm over the last ${nf.samples} s (${nf.min_dbm} to ${nf.max_dbm}). `
+      + (loud ? "Much too high: something near the antenna is drowning out weak stations."
+         : noisy ? "A little high: weak stations may be missed." : "Quiet.");
+    $("#s-noise").className = loud ? "bad" : "";
+  }
   $("#s-board").textContent = r.board;
   const apNow = s.beacon.auto_power;
   if (apNow.on && apNow.level_dbm < apNow.max_dbm) {
@@ -120,7 +131,7 @@ function renderStatus(s) {
 
   const c = s.counts;
   $("#s-counts").textContent =
-    `${c.rx_ok} received, ${c.rx_dropped} dropped, ${c.tx} sent, ${c.repeated} repeated, ${c.gated} gated`;
+    `${c.rx_ok} received, ${c.rx_dropped} dropped` + (c.crc ? ` (${c.crc} damaged: failed the CRC)` : "") + `, ${c.tx} sent, ${c.repeated} repeated, ${c.gated} gated`;
   const dg = s.digi;
   $("#s-digi").textContent = { off: "Off", "fill-in": "Fill-in (WIDE1-1)", wide: "Wide area (WIDE1-1 and WIDE2-N)" }[dg.mode]
     + (dg.waiting ? `, ${dg.waiting} waiting to go out` : "");

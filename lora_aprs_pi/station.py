@@ -3,6 +3,7 @@
 import collections
 import copy
 import logging
+import math
 import os
 import random
 import threading
@@ -29,7 +30,8 @@ class Station:
         self.lock = threading.RLock()
         self.heard = collections.deque(maxlen=200)
         self.next_id = 1
-        self.counts = {"rx_ok": 0, "rx_dropped": 0, "tx": 0, "gated": 0, "repeated": 0}
+        self.counts = {"rx_ok": 0, "rx_dropped": 0, "crc": 0, "tx": 0, "gated": 0, "repeated": 0}
+        self.noise = collections.deque(maxlen=60)     # idle-channel RSSI, once a second, for the last minute
         self.started = time.time()
 
         self.radio = None
@@ -120,14 +122,16 @@ class Station:
             self.mqtt.publish(kind, event)
 
     def _mqtt_tick(self):
-        """Once a second: a noise-floor reading; once a minute: the status line."""
+        """Once a second: a noise-floor reading; once a minute: the MQTT status line."""
         events, now = self.events, time.monotonic()
-        if not events:
-            return
         if now >= self.noise_due and self.radio and hasattr(self.radio, "rssi_now"):
             self.noise_due = now + 1
-            events.noise(self.radio.rssi_now())
-        if now >= self.status_due:
+            dbm = self.radio.rssi_now()
+            if -160 <= dbm < 0:
+                self.noise.append(dbm)
+                if events:
+                    events.noise(dbm)
+        if events and now >= self.status_due:
             self.status_due = now + mqtt.STATUS_EVERY_S
             self._feed("status", events.status())
 
@@ -227,6 +231,8 @@ class Station:
                 self._maybe_repeat(entry, raw, rssi, snr, freq_offset)
         with self.lock:
             self.counts["rx_ok" if entry.get("text") else "rx_dropped"] += 1
+            if raw is None:
+                self.counts["crc"] += 1
         events = self.events
         if events:
             text = got["text"] if raw is not None else None
@@ -482,6 +488,13 @@ class Station:
         with self.lock:
             return [e for e in self.heard if e["id"] > since_id]
 
+    def _noise_summary(self):
+        samples = list(self.noise)
+        if not samples:
+            return None
+        avg = 10 * math.log10(sum(10 ** (s / 10) for s in samples) / len(samples))
+        return {"avg_dbm": round(avg, 1), "min_dbm": min(samples), "max_dbm": max(samples), "samples": len(samples)}
+
     def status(self):
         with self.lock:
             cfg = self.cfg
@@ -502,6 +515,7 @@ class Station:
                     "bw_khz": rs["bw_khz"], "cr": rs["cr"], "chip_dbm": rs["chip_dbm"],
                     "antenna_dbm": hardware.antenna_power(rs["chip_dbm"], prof),
                     "max_antenna_dbm": hardware.antenna_power(prof["max_chip_dbm"], prof),
+                    "noise": self._noise_summary(),
                 },
                 "lacf": {"available": lacf.available(), "error": lacf.load_error()},
                 "gps": gps,
