@@ -98,15 +98,15 @@ function renderStatus(s) {
 
   $("#s-radio").textContent = r.state === "error" ? r.error : radioText;
   $("#s-radio").className = r.state === "error" ? "bad" : "";
-  // What the receiver hears between packets. Around -110 to -120 dBm is a quiet channel; much higher
-  // means something near the antenna is drowning out weak stations.
+  // What the receiver hears between packets. A MeshAdv E22 board on a quiet site reads about -100 dBm
+  // (the hill station does); much higher means something near the antenna is drowning out weak stations.
   const nf = r.noise;
   if (!nf) $("#s-noise").textContent = "Measuring…";
   else {
-    const loud = nf.avg_dbm > -95, noisy = nf.avg_dbm > -105;
+    const loud = nf.avg_dbm > -85, noisy = nf.avg_dbm > -97;
     $("#s-noise").textContent = `${nf.avg_dbm} dBm over the last ${nf.samples} s (${nf.min_dbm} to ${nf.max_dbm}). `
       + (loud ? "Much too high: something near the antenna is drowning out weak stations."
-         : noisy ? "A little high: weak stations may be missed." : "Quiet.");
+         : noisy ? "A little high: the weakest stations may be missed." : "Quiet.");
     $("#s-noise").className = loud ? "bad" : "";
   }
   $("#s-board").textContent = r.board;

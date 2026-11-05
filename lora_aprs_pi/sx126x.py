@@ -418,7 +418,10 @@ class SX126x:
                 return None
             self.clear_irq(IRQ_ARRIVING)
         self._arriving_since = None
-        return -self._read(GET_RSSI_INST, 1)[0] / 2.0
+        raw = self._read(GET_RSSI_INST, 1)[0]
+        if raw >= 255:                                     # the chip's "no reading" value (-127.5), e.g. just after starting
+            return None
+        return -raw / 2.0
 
     def transmit(self, payload, chip_dbm=None):
         """Send one packet, wait until it's out, then go back to receive. Returns seconds on air.

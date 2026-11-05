@@ -295,3 +295,13 @@ class TestNoiseReading(unittest.TestCase):
         with mock.patch("time.monotonic", return_value=1010.0):   # longer than a 120-byte SF12 packet
             self.assertEqual(self.radio.rssi_now(), -110.0)
         self.assertEqual(self.chip.irq, 0)
+
+    def test_no_reading_value_is_ignored(self):
+        orig = self.chip.xfer
+        def xfer(data):
+            out = orig(data)
+            if data[0] == sx.GET_RSSI_INST:
+                out[2] = 255
+            return out
+        self.chip.xfer = xfer
+        self.assertIsNone(self.radio.rssi_now())
