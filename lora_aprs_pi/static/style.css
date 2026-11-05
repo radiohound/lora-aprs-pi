@@ -240,3 +240,11 @@ input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--fa
   .lamp[data-state="ok"] .lamp-dot { animation: none; }
   .lamp { transition: none; }
 }
+
+/* GPS steps on the Status page */
+.step { display: flex; gap: 0.5em; align-items: baseline; }
+.step + .step { margin-top: 0.2em; }
+.step .mark { font-weight: 700; width: 1em; flex: none; text-align: center; }
+.step.good .mark { color: var(--listen); }
+.step.bad { color: var(--fault); }
+.step.wait .mark { color: var(--tx); }

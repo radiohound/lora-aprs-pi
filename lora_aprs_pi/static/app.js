@@ -116,11 +116,7 @@ function renderStatus(s) {
   $("#s-lacf").className = s.lacf.available ? "" : "bad";
 
   const g = s.gps;
-  if (!g) $("#s-gps").textContent = "No GPS set up";
-  else if (g.error) $("#s-gps").textContent = g.error;
-  else if (g.fresh) $("#s-gps").textContent =
-    `${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}` + (g.alt_m !== null ? `, ${Math.round(g.alt_m * 3.28084)} ft` : "") + `, ${g.sats} satellites`;
-  else $("#s-gps").textContent = "Waiting for a fix";
+  renderGps(g);
 
   const c = s.counts;
   $("#s-counts").textContent =
@@ -180,6 +176,32 @@ $("#beacon-now").addEventListener("click", async () => {
 });
 
 // ---------- heard list ----------
+
+// The GPS row: three steps, each done, not yet, or failed, so it's plain which one is missing.
+function renderGps(g) {
+  const box = $("#s-gps");
+  if (!g) { box.textContent = "No GPS set up (Settings, GPS)"; return; }
+  const view = g.in_view ? `${g.in_view} satellites in view` : "no satellites in view yet";
+  const at = () => `${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}`
+    + (g.alt_m !== null ? `, ${Math.round(g.alt_m * 3.28084)} ft` : "")
+    + `, ${g.sats} satellites used` + (g.hdop !== null ? `, HDOP ${g.hdop}` : "");
+  const st = g.state;
+  const connected = st === "not connected"
+    ? ["bad", `Not connected: ${g.error || g.device}`] : ["good", `Connected on ${g.device}`];
+  const receiving = st === "not connected" ? ["wait", "Receiving data"]
+    : st === "no data" ? ["bad", "Connected, but no data is arriving"]
+    : st === "garbled" ? ["bad", "Data arrives but is garbled: check the baud rate"]
+    : ["good", "Receiving data"];
+  const position = ["not connected", "no data", "garbled"].includes(st) ? ["wait", "Position"]
+    : st === "no fix" ? ["wait", `No position yet: ${view}. Give it a view of the sky.`]
+    : st === "rough fix" ? ["wait", `Rough position (${g.fix_type === 2 ? "2D fix" : "weak geometry"}): ${at()}`]
+    : ["good", `Good position: ${at()}`];
+  box.replaceChildren(...[connected, receiving, position].map(([kind, text]) => {
+    const row = el("div", "step " + kind);
+    row.append(el("span", "mark", { good: "✓", bad: "✗", wait: "…" }[kind]), el("span", "", text));
+    return row;
+  }));
+}
 
 function signalBars(rssi, snr) {
   // SNR says more than RSSI about whether the next packet will get through

@@ -151,6 +151,68 @@ class TestGps(unittest.TestCase):
         self.assertFalse(gps.parse("$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*00", fix))
 
 
+def nmea(body):
+    cs = 0
+    for ch in body:
+        cs ^= ord(ch)
+    return ("$%s*%02X\r\n" % (body, cs)).encode()
+
+
+class TestGpsSteps(unittest.TestCase):
+    """Connected, receiving, position: each step is told apart, using a pretend serial port."""
+
+    def setUp(self):
+        import pty
+        self.master, slave = pty.openpty()
+        self.path = os.ttyname(slave)
+        self.slave = slave
+        self.old_stale = gps.STALE_S
+        gps.STALE_S = 0.6
+        self.g = gps.Gps(self.path, 9600)
+
+    def tearDown(self):
+        self.g.stop()
+        gps.STALE_S = self.old_stale
+        os.close(self.master)
+        os.close(self.slave)
+
+    def state_becomes(self, want, timeout=3):
+        end = time.time() + timeout
+        while time.time() < end:
+            if self.g.fix()["state"] == want:
+                return True
+            time.sleep(0.05)
+        self.fail("GPS state stayed %r, wanted %r" % (self.g.fix()["state"], want))
+
+    def test_steps(self):
+        self.state_becomes("no data")
+        os.write(self.master, b"\x8f\x13garbage at the wrong baud\x00\xff\n" * 3)
+        self.state_becomes("garbled")
+        os.write(self.master, nmea("GPGSV,2,1,07,01,40,083,,02,17,308,,") + nmea("GLGSV,1,1,02,65,40,083,,66,17,308,,")
+                 + nmea("GPRMC,123519,V,,,,,,,230394,,"))
+        self.state_becomes("no fix")
+        self.assertEqual(self.g.fix()["in_view"], 9)
+        os.write(self.master, nmea("GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,")
+                 + nmea("GPGSA,A,3,04,05,,09,12,,,24,,,,,2.5,1.3,2.1")
+                 + nmea("GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W"))
+        self.state_becomes("good fix")
+        f = self.g.fix()
+        self.assertEqual((f["sats"], f["hdop"], f["fix_type"], f["fresh"]), (8, 0.9, 3, True))
+        os.write(self.master, nmea("GPGSA,A,2,04,05,,09,,,,,,,,,2.5,1.3,2.1"))
+        self.state_becomes("rough fix")
+        self.state_becomes("no data")             # it stops sending
+
+    def test_missing_device(self):
+        g = gps.Gps("/dev/ttyNOPE9", 9600)
+        try:
+            time.sleep(0.3)
+            f = g.fix()
+            self.assertEqual(f["state"], "not connected")
+            self.assertIn("No such file", g.error)
+        finally:
+            g.stop()
+
+
 class TestStation(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()

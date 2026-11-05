@@ -490,6 +490,7 @@ class Station:
             if reader:
                 gps = reader.fix()
                 gps["error"] = reader.error
+                gps["device"] = reader.device
             return {
                 "version": VERSION,
                 "simulate": self.simulate,
