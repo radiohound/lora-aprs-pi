@@ -248,3 +248,5 @@ input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--fa
 .step.good .mark { color: var(--listen); }
 .step.bad { color: var(--fault); }
 .step.wait .mark { color: var(--tx); }
+
+.btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 0.3em 0 0.6em; }

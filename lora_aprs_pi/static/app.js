@@ -301,9 +301,24 @@ async function loadSettings() {
   $("#mqtt-pw-hint").textContent = mq.password_public
     ? "This is the shared public login for the map, so it isn't a secret."
     : mq.password_set ? "Your password is saved and not shown. Leave the box empty to keep it." : "";
+  showSerialPorts(options.serial_ports || []);
   savedCallsign = data.settings.station.callsign;
   showPasscode(savedCallsign);
   boardChanged();
+}
+
+// The serial devices found on this Pi, as buttons that fill in the GPS box.
+function showSerialPorts(ports) {
+  const box = $("[name='gps.device']");
+  $("#gps-hint").textContent = ports.length
+    ? "Found on this Pi (tap one to use it). A USB GPS is usually /dev/ttyACM0 or /dev/ttyUSB0."
+    : "No serial device found: plug in the GPS and reload this page. A USB GPS is usually /dev/ttyACM0 or /dev/ttyUSB0; one wired to the Pi's pins is /dev/serial0.";
+  $("#gps-ports").replaceChildren(...ports.map((p) => {
+    const b = el("button", "quiet", p);
+    b.type = "button";
+    b.addEventListener("click", () => { box.value = p; box.focus(); });
+    return b;
+  }));
 }
 
 function fillForm(form, settings) {

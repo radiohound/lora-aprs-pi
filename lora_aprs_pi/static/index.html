@@ -210,8 +210,10 @@
       <fieldset>
         <legend>GPS</legend>
         <label>Serial device (empty for no GPS)
-          <input name="gps.device" placeholder="/dev/ttyACM0" spellcheck="false" autocapitalize="off">
+          <input name="gps.device" spellcheck="false" autocapitalize="off">
         </label>
+        <p class="hint" id="gps-hint">A USB GPS is usually /dev/ttyACM0 or /dev/ttyUSB0; one wired to the Pi's pins is /dev/serial0.</p>
+        <div class="btns" id="gps-ports"></div>
         <label>Baud rate
           <select name="gps.baud">
             <option>4800</option><option>9600</option><option>38400</option><option>115200</option>

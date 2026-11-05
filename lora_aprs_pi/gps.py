@@ -48,6 +48,13 @@ def _coord(value, hemi, width):
     return -out if hemi in ("S", "W") else out
 
 
+def serial_ports():
+    """Serial devices a GPS may be on: USB GPS (ttyACM, ttyUSB) and the Pi's own UART."""
+    import glob
+    found = sorted(glob.glob("/dev/ttyACM*")) + sorted(glob.glob("/dev/ttyUSB*"))
+    return found + [p for p in ("/dev/serial0",) if os.path.exists(p)]
+
+
 def new_fix():
     return {"valid": False, "lat": None, "lon": None, "alt_m": None, "sats": 0, "time": 0,
             "fix_type": None, "hdop": None, "in_view": {}}

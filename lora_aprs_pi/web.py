@@ -9,7 +9,7 @@ import socket
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, hardware, igate
+from . import config, gps, hardware, igate
 
 log = logging.getLogger("web")
 
@@ -114,7 +114,8 @@ class Handler(BaseHTTPRequestHandler):
                     "auto_passcode": igate.passcode(call) if call != "N0CALL" else None,
                     "profiles": {k: {"label": p["label"], "pa_gain_db": p["pa_gain_db"],
                                      "max_chip_dbm": p["max_chip_dbm"]} for k, p in hardware.PROFILES.items()},
-                    "symbols": config.SYMBOLS}})
+                    "symbols": config.SYMBOLS,
+                    "serial_ports": gps.serial_ports()}})
             if url.path == "/api/wifi":
                 return self._json(self.wifi.status() if self.wifi else {"available": False})
             if url.path == "/api/wifi/scan":
