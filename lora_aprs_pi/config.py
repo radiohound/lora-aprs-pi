@@ -44,6 +44,14 @@ DEFAULTS = {
         "port": 14580,
         "passcode": "",               # empty = worked out from the callsign
     },
+    "mqtt": {
+        "enabled": False,             # pre-filled for the LoRa APRS collector map; off until ticked
+        "server": "mqtt.lora-aprs.org",
+        "port": 1884,
+        "username": "igate",          # the collector's shared, public login
+        "password": "lora-aprs",
+        "topic": "lora-aprs",
+    },
     "gps": {
         "device": "",                 # e.g. /dev/ttyACM0 or /dev/serial0; empty = no GPS
         "baud": 9600,
@@ -233,6 +241,25 @@ def check(cfg):
     if ig["enabled"] and st["callsign"] == "N0CALL":
         errs["station.callsign"] = "Enter your callsign to use the iGate"
 
+    mq = cfg["mqtt"]
+    mq["enabled"] = bool(mq["enabled"])
+    mq["server"] = str(mq["server"]).strip()
+    if not re.match(r"^[A-Za-z0-9.-]{1,253}$", mq["server"]):
+        errs["mqtt.server"] = "A server name such as mqtt.lora-aprs.org"
+    try:
+        mq["port"] = int(mq["port"])
+        if not 1 <= mq["port"] <= 65535:
+            raise ValueError
+    except (TypeError, ValueError):
+        errs["mqtt.port"] = "A port number such as 1884"
+    mq["username"] = str(mq["username"]).strip()
+    mq["password"] = str(mq["password"])
+    mq["topic"] = str(mq["topic"]).strip().strip("/")
+    if not re.match(r"^[A-Za-z0-9_-]{1,40}(/[A-Za-z0-9_-]{1,40}){0,3}$", mq["topic"]):
+        errs["mqtt.topic"] = "Letters, digits, - and _, such as lora-aprs"
+    if mq["enabled"] and st["callsign"] == "N0CALL":
+        errs["station.callsign"] = "Enter your callsign to use MQTT"
+
     gp["device"] = str(gp["device"]).strip()
     if gp["device"] and not gp["device"].startswith("/dev/"):
         errs["gps.device"] = "A device such as /dev/ttyACM0, or empty"
@@ -268,4 +295,6 @@ def public(cfg):
     out["web"]["password"] = ""
     out["web"]["password_set"] = bool(cfg["web"]["password"])
     out["wifi"]["hotspot_password"] = ""
+    out["mqtt"]["password"] = ""
+    out["mqtt"]["password_set"] = bool(cfg["mqtt"]["password"])
     return out

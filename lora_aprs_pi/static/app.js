@@ -141,6 +141,12 @@ function renderStatus(s) {
     $("#s-igate").textContent = igText[ig.state] || ig.state;
     $("#s-igate").className = ig.state === "error" ? "bad" : "";
   }
+  const mq = s.mqtt;
+  const mqText = { off: "Off", "needs a callsign": "Set your callsign to start MQTT",
+                   connecting: "Connecting…", error: `Can't reach the server: ${mq.error}` };
+  $("#s-mqtt").textContent = mq.state === "connected"
+    ? `Connected to ${mq.server}, ${mq.sent} messages sent` : (mqText[mq.state] || mq.state);
+  $("#s-mqtt").className = mq.state === "connected" ? "good" : mq.state === "error" ? "bad" : "";
   if (!s.network) {
     $("#s-net").textContent = s.simulate ? "Not managed in simulate mode" : "Not managed by this program";
   } else {
@@ -267,6 +273,10 @@ async function loadSettings() {
   $("#pw-state").textContent = data.settings.web.password_set
     ? "A password is set. Enter a new one to change it." : "No password: anyone on this network can change settings.";
   $("#clear-pw").hidden = !data.settings.web.password_set;
+  const mqPw = $("[name='mqtt.password']");
+  mqPw.placeholder = data.settings.mqtt.password_set ? "Saved" : "";
+  $("#mqtt-pw-hint").textContent = data.settings.mqtt.password_set
+    ? "The password is saved and not shown (for the map it is the shared public one). Leave the box empty to keep it." : "";
   savedCallsign = data.settings.station.callsign;
   showPasscode(savedCallsign);
   boardChanged();

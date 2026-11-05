@@ -50,6 +50,9 @@ class SimRadio:
         return (frame, round(random.uniform(-125, -80), 1), round(random.uniform(-12, 9), 2),
                 random.randint(-400, 400))
 
+    def rssi_now(self):
+        return round(random.gauss(-112, 2), 1)
+
     def transmit(self, payload, chip_dbm=None):
         s = self.settings
         self.sent_power.append(s["chip_dbm"] if chip_dbm is None else min(chip_dbm, s["chip_dbm"]))

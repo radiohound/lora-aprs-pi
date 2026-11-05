@@ -8,14 +8,14 @@ import random
 import threading
 import time
 
-from . import aprs, config, digi, frames, hardware, igate, lacf, power
+from . import aprs, config, digi, frames, hardware, igate, lacf, mqtt, power
 from .sx126x import airtime_s
 from .gps import Gps
 from .sx126x import RadioError
 
 log = logging.getLogger("station")
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 DIGI_DELAY_S = (0.5, 2.0)      # random wait before repeating, so digipeaters don't all key up at once
 FIRST_BEACON_DELAY_S = 60
 RADIO_RETRY_S = 15
@@ -53,6 +53,10 @@ class Station:
         self.auto_power = power.AutoPower(self.cfg["radio"]["power_dbm"],
                                           os.path.join(state_dir, "power-state.json"))
         self.is_position_due = time.time() + FIRST_BEACON_DELAY_S
+        self.mqtt = None                     # MQTT connection to the collector, when ticked
+        self.events = None                   # the event lines and counts it sends
+        self.status_due = 0
+        self.noise_due = 0
 
         self.on_wifi_settings = None       # set by the program to apply hotspot changes
         self._stop = threading.Event()
@@ -63,6 +67,7 @@ class Station:
     def start(self):
         self._start_gps()
         self._start_igate()
+        self._start_mqtt()
         self._thread = threading.Thread(target=self._loop, name="radio", daemon=True)
         self._thread.start()
 
@@ -74,6 +79,8 @@ class Station:
             self.gps.stop()
         if self.aprsis:
             self.aprsis.stop()
+        if self.mqtt:
+            self.mqtt.stop()
         self._close_radio()
 
     def _start_gps(self):
@@ -93,6 +100,36 @@ class Station:
             self.aprsis = igate.AprsIs(ig["server"], ig["port"], call, code)
         if old:
             old.stop()
+
+    def _start_mqtt(self):
+        old = self.mqtt
+        with self.lock:
+            mq, call = dict(self.cfg["mqtt"]), self.cfg["station"]["callsign"]
+            rd = dict(self.cfg["radio"])
+        self.mqtt, self.events = None, None
+        if mq["enabled"] and call != "N0CALL":
+            self.events = mqtt.Events(call, rd)
+            # the broker lets a station write only under its client id, so the client id is the callsign
+            self.mqtt = mqtt.Mqtt(mq["server"], mq["port"], call, mq["username"], mq["password"], mq["topic"])
+            self.status_due = time.monotonic() + 10
+        if old:
+            old.stop()
+
+    def _feed(self, kind, event):
+        if self.mqtt and event:
+            self.mqtt.publish(kind, event)
+
+    def _mqtt_tick(self):
+        """Once a second: a noise-floor reading; once a minute: the status line."""
+        events, now = self.events, time.monotonic()
+        if not events:
+            return
+        if now >= self.noise_due and self.radio and hasattr(self.radio, "rssi_now"):
+            self.noise_due = now + 1
+            events.noise(self.radio.rssi_now())
+        if now >= self.status_due:
+            self.status_due = now + mqtt.STATUS_EVERY_S
+            self._feed("status", events.status())
 
     def _open_radio(self):
         with self.lock:
@@ -124,6 +161,7 @@ class Station:
 
     def _loop(self):
         while not self._stop.is_set():
+            pass_start = time.monotonic()
             try:
                 if self.radio is None or self.radio_dirty:
                     if time.time() < self.radio_retry_at and not self.radio_dirty:
@@ -148,6 +186,10 @@ class Station:
                 self._run_digi_jobs()
                 if self.aprsis and time.time() >= self.is_position_due:
                     self._position_to_aprsis()
+                self._mqtt_tick()
+                events = self.events
+                if events:                           # how long the radio could not listen in this pass
+                    events.loop_pass((time.monotonic() - pass_start) * 1000)
 
                 self._stop.wait(0.02)
             except (RadioError, OSError) as exc:
@@ -185,6 +227,10 @@ class Station:
                 self._maybe_repeat(entry, raw, rssi, snr, freq_offset)
         with self.lock:
             self.counts["rx_ok" if entry.get("text") else "rx_dropped"] += 1
+        events = self.events
+        if events:
+            text = got["text"] if raw is not None else None
+            self._feed("rx", events.rx(raw, rssi, snr, freq_offset, text))
         self._remember(entry)
         log.info("RX %s %s (RSSI %.0f, SNR %.1f)", entry["format"], entry.get("text") or entry["error"], rssi, snr)
 
@@ -280,6 +326,8 @@ class Station:
             log.info("not repeated (frame too long or not relayable): %s", job["tnc2"])
             return
         on_air = self.radio.transmit(frame)
+        if self.events:
+            self._feed("tx", self.events.tx(frame))
         with self.lock:
             self.counts["repeated"] += 1
         self._remember({"dir": "tx", "kind": "repeat", "format": job["format"], "bytes": len(frame),
@@ -365,6 +413,8 @@ class Station:
             level = self.auto_power.next_level(hardware.antenna_power(hardware.CHIP_MIN_DBM, prof))
             chip = hardware.chip_power(level, prof)
         on_air = self.radio.transmit(frame, chip)
+        if self.events:
+            self._feed("tx", self.events.tx(frame))
         if bc["auto_reduce_power"]:
             self.auto_power.sent(info, used, bc["path"])
         self.last_beacon = {"time": time.time(), "format": used, "bytes": len(frame),
@@ -400,6 +450,9 @@ class Station:
         wifi = changes.get("wifi", {})
         if not wifi.get("hotspot_password"):
             wifi.pop("hotspot_password", None)
+        mq = changes.get("mqtt", {})
+        if not mq.get("password"):
+            mq.pop("password", None)                 # empty box: keep the saved password
 
         with self.lock:
             old = self.cfg
@@ -416,6 +469,8 @@ class Station:
             self._start_gps()
         if new["igate"] != old["igate"] or new["station"] != old["station"]:
             self._start_igate()
+        if new["mqtt"] != old["mqtt"] or new["station"] != old["station"] or new["radio"] != old["radio"]:
+            self._start_mqtt()
         if new["wifi"] != old["wifi"] and self.on_wifi_settings:
             # in the background: restarting the hotspot would otherwise cut off this reply
             threading.Timer(2.0, self.on_wifi_settings, args=(dict(new["wifi"]),)).start()
@@ -461,4 +516,7 @@ class Station:
                 "igate": dict(self.aprsis.status(), enabled=True) if self.aprsis else {
                     "enabled": cfg["igate"]["enabled"],
                     "state": "off" if not cfg["igate"]["enabled"] else "needs a callsign"},
+                "mqtt": dict(self.mqtt.status(), enabled=True) if self.mqtt else {
+                    "enabled": cfg["mqtt"]["enabled"],
+                    "state": "off" if not cfg["mqtt"]["enabled"] else "needs a callsign"},
             }

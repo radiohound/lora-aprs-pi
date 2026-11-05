@@ -9,6 +9,8 @@ A LoRa APRS station for a Raspberry Pi with a LoRa HAT, set up from your phone.
 - Sends a position beacon in standard format, LACF, or alternating between the two.
 - Works as an iGate: passes what it hears to APRS-IS, LACF packets included, so
   LACF stations show up on aprs.fi like any other.
+- Can share what it hears with the [LoRa APRS map](https://tiles.aivu.com/lora) over MQTT
+  (filled in, off until you tick it).
 - Works as a digipeater: fill-in (WIDE1-1) or wide area (WIDE1-1 and WIDE2-N).
   LACF packets are repeated as LACF with this station's signal report added.
 - Shows when a digipeater repeats your beacon and, for LACF, how well it heard you.
@@ -69,9 +71,9 @@ when you have several Pis.
 
 | Tab | What it shows |
 |---|---|
-| Status | Whether the radio is listening; radio settings; the power in use (including auto reduced power); APRS-IS login; digipeater mode; GPS; packet counts; and the next beacon. **Send beacon now** sends one straight away. |
+| Status | Whether the radio is listening; radio settings; the power in use (including auto reduced power); APRS-IS login; MQTT; digipeater mode; GPS; packet counts; and the next beacon. **Send beacon now** sends one straight away. |
 | Heard | Every packet, newest first, with signal, distance and bearing, and the raw packet. Tags show the format (Standard or Experimental LACF), **Gated** (sent to APRS-IS), **Repeated** (digipeated), **Sent** (your own transmissions, with their power), and **Your beacon, via …** (your beacon repeated by a digipeater, with its report when there is one). A packet that wasn't gated or repeated says why. |
-| Settings | Callsign, beacon (including auto reduced power), digipeater, iGate, radio, GPS and the settings password. Changes apply as soon as you save. |
+| Settings | Callsign, beacon (including auto reduced power), digipeater, iGate, MQTT, radio, GPS and the settings password. Changes apply as soon as you save. |
 | WiFi | Join a network, or change and switch to the hotspot. |
 
 The bar under your callsign is the station's lamp: green while listening, amber
@@ -110,6 +112,29 @@ Gating to APRS-IS is for licensed amateurs.
 - **Its own position** also goes to APRS-IS directly at the beacon interval
   (at least every 10 minutes apart), without using any air time, whether or not
   the radio beacon is on.
+
+## MQTT (the LoRa APRS map)
+
+Settings → **MQTT** sends what this station hears to the
+[tiles.aivu.com/lora](https://tiles.aivu.com/lora) map, and lets the developers see how
+the network is doing and where problems are: which frame formats arrive, signal strength
+and quality (RSSI, SNR, frequency offset), the noise floor, damaged frames, and whether
+Experimental LACF frames decode. Every station that reports makes the picture of real
+conditions better.
+
+The details are already filled in (server `mqtt.lora-aprs.org`, port `1884`, user `igate`,
+password `lora-aprs`, topic `lora-aprs`); tick the box and save. It needs your callsign,
+and an internet connection, so it stays quiet while the Pi is on its own hotspot.
+
+- **What it sends**, under `lora-aprs/<your callsign>/`: each packet heard (the same content
+  that is on the air and on APRS-IS) with its signal figures; the size and type of each
+  frame sent; and a status line each minute (uptime, noise floor, counts). These are the
+  same messages the LACF build of the ESP32 iGate sends, so the map treats both alike.
+- **What it never sends**: your settings, passwords or WiFi details; packets with RFONLY or
+  NOGATE anywhere in the path; and the bytes of damaged frames.
+- **Please note**: the connection is not encrypted, and the login is shared and public.
+  Untick the box to stop at any time. Status → MQTT shows whether it is connected and how
+  many messages have gone.
 
 ## Digipeater
 
@@ -216,6 +241,7 @@ make run        # a pretend radio at http://localhost:8080
 | `lora_aprs_pi/aprs.py` | Building beacons, reading received packets |
 | `lora_aprs_pi/station.py` | The station: radio loop, heard list, beacons |
 | `lora_aprs_pi/igate.py` | APRS-IS connection, passcode, gating rules |
+| `lora_aprs_pi/mqtt.py` | The map feed: event lines and a small MQTT client |
 | `lora_aprs_pi/digi.py` | Digipeater path rules and RXT signal reports |
 | `lora_aprs_pi/power.py` | Auto reduced power |
 | `lora_aprs_pi/sim_radio.py` | The pretend radio used by `make run` and the tests |

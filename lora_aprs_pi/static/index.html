@@ -30,6 +30,7 @@
       <div><dt>Experimental LACF</dt><dd id="s-lacf">–</dd></div>
       <div><dt>GPS</dt><dd id="s-gps">–</dd></div>
       <div><dt>APRS-IS</dt><dd id="s-igate">–</dd></div>
+      <div><dt>MQTT</dt><dd id="s-mqtt">–</dd></div>
       <div><dt>Digipeater</dt><dd id="s-digi">–</dd></div>
       <div><dt>Packets</dt><dd id="s-counts">–</dd></div>
       <div><dt>Network</dt><dd id="s-net">–</dd></div>
@@ -127,6 +128,36 @@
           <input name="igate.passcode" inputmode="numeric" autocomplete="off">
         </label>
         <p class="hint" id="passcode-hint"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>MQTT (map and network diagnostics)</legend>
+        <label class="check"><input type="checkbox" name="mqtt.enabled"> Share what this station hears with the LoRa APRS map</label>
+        <p class="hint">The details are already filled in. Tick the box and save. What this station hears, with its signal
+          strength, plus a status line each minute, goes to the
+          <a href="https://tiles.aivu.com/lora" target="_blank" rel="noopener">tiles.aivu.com/lora</a> map, and lets the
+          developers see how the network is doing and where problems are. Never your settings, passwords or WiFi details,
+          and never packets with RFONLY or NOGATE in the path. The connection is not encrypted and the login is shared and public.</p>
+        <div class="pair">
+          <label>Server
+            <input name="mqtt.server" spellcheck="false" autocapitalize="off" placeholder="mqtt.lora-aprs.org">
+          </label>
+          <label>Port
+            <input name="mqtt.port" type="number" inputmode="numeric">
+          </label>
+        </div>
+        <div class="pair">
+          <label>User name
+            <input name="mqtt.username" spellcheck="false" autocapitalize="off" autocomplete="off">
+          </label>
+          <label>Password
+            <input name="mqtt.password" type="password" autocomplete="off">
+          </label>
+        </div>
+        <label>Topic
+          <input name="mqtt.topic" spellcheck="false" autocapitalize="off" placeholder="lora-aprs">
+        </label>
+        <p class="hint" id="mqtt-pw-hint"></p>
       </fieldset>
 
       <fieldset>

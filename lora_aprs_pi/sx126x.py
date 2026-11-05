@@ -36,6 +36,7 @@ CLEAR_IRQ_STATUS = 0x02
 GET_IRQ_STATUS = 0x12
 GET_RX_BUFFER_STATUS = 0x13
 GET_PACKET_STATUS = 0x14
+GET_RSSI_INST = 0x15
 WRITE_REGISTER = 0x0D
 READ_REGISTER = 0x1D
 WRITE_BUFFER = 0x0E
@@ -397,6 +398,10 @@ class SX126x:
         d = self._read(GET_PACKET_STATUS, 3)
         snr = d[1] - 256 if d[1] > 127 else d[1]
         return (-d[0] / 2.0, snr / 4.0)
+
+    def rssi_now(self):
+        """The signal level on the channel right now (dBm): the noise floor when nothing is being sent."""
+        return -self._read(GET_RSSI_INST, 1)[0] / 2.0
 
     def transmit(self, payload, chip_dbm=None):
         """Send one packet, wait until it's out, then go back to receive. Returns seconds on air.
