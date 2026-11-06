@@ -101,6 +101,7 @@ main { max-width: 680px; margin: 0 auto; padding: 0 16px 24px; }
   background: var(--tx-soft); color: var(--ink);
 }
 .hint { color: var(--muted); font-size: 0.875rem; margin: 0.25rem 0 0.5rem; }
+.hint.block { display: block; }
 .fineprint { color: var(--muted); font-size: 0.8125rem; margin-top: 2rem; }
 .empty { color: var(--muted); margin-top: 1rem; }
 

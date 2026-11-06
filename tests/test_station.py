@@ -224,6 +224,47 @@ class TestStation(unittest.TestCase):
         self.st.stop()
         self.dir.cleanup()
 
+    def _setup_beacon(self, **beacon):
+        bc = {"enabled": True, "latitude": 37.02, "longitude": -121.6, "format": "standard"}
+        bc.update(beacon)
+        errs = self.st.change_settings({"station": {"callsign": "K6ATV-10"}, "beacon": bc})
+        self.assertEqual(errs, {})
+        self.st.radio_dirty = False
+
+    def test_comment_every_n_beacons(self):
+        self._setup_beacon(comment="Hill digi", comment_every=3)
+        self.wait_for(lambda: self.st.radio is not None)
+        sent = []
+        for _ in range(7):
+            self.st._beacon(manual=True)
+            sent.append(self.st.last_beacon["text"])
+        with_comment = ["Hill digi" in t for t in sent]
+        self.assertEqual(with_comment, [True, False, False, True, False, False, True])
+
+    def test_status_message_over_the_air_and_to_aprsis(self):
+        class FakeIs:
+            def __init__(self): self.lines = []
+            def send(self, line): self.lines.append(line)
+            def stop(self): pass
+            def status(self): return {"state": "connected"}
+        self._setup_beacon(status_text="Hill  digi + iGate", status_every_h=6)
+        self.wait_for(lambda: self.st.radio is not None)
+        self.st.aprsis = FakeIs()
+        self.st.aprs_status_due = 0
+        self.assertTrue(self.wait_for(lambda: self.st.last_status is not None))
+        self.assertEqual(self.st.last_status["text"], "Hill digi + iGate")        # spaces tidied
+        self.assertIn("K6ATV-10>APZLPI,TCPIP*:>Hill digi + iGate", self.st.aprsis.lines)
+        sent = [frames.decode(f)["text"] for f in self.st.radio.sent]
+        self.assertTrue(any(t and t.endswith(b":>Hill digi + iGate") for t in sent))
+        nxt = self.st.status()["beacon"]["status"]["next_in_s"]
+        self.assertGreater(nxt, 5 * 3600)
+
+    def test_status_text_rules(self):
+        for bad in ("x" * 63, "a | b", "tilde ~"):
+            errs = self.st.change_settings({"beacon": {"status_text": bad}})
+            self.assertIn("beacon.status_text", errs)
+        self.assertIn("beacon.comment_every", self.st.change_settings({"beacon": {"comment_every": 0}}))
+
     def test_position_goes_to_aprsis_soon_after_a_callsign_change_or_beacon_now(self):
         from lora_aprs_pi import station as station_mod
         self.st.is_position_due = time.time() + 3600            # as if the last one just went out

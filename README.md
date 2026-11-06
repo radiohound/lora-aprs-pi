@@ -92,6 +92,18 @@ just after transmitting, red when the radio has a problem (with the reason).
 Beacons use the plain (uncompressed) position format, which LACF carries in its
 lossless position block.
 
+## Comment and status message
+
+- **Send the comment with every … beacons** (Settings → Beacon): 1 puts the comment in
+  every beacon. 5 or 10 sends it only on every 5th or 10th, so most beacons are just the
+  position: less air time at SF12, and the maps keep showing the last comment.
+- **Status message**: an optional short line about the station (up to 62 characters,
+  no `|` or `~`), for example `Hill digi + iGate, 433.775 SF12, Experimental LACF`. It is
+  sent as an APRS status packet (`>text`) about 15 seconds after the first beacon, then
+  every few hours (6 by default), over the air and, with the iGate on, straight to APRS-IS.
+  aprs.fi shows it as the station's status. It goes out in Experimental LACF only when the
+  beacon format is LACF; otherwise standard.
+
 ## iGate (APRS-IS)
 
 Turn on **Send what this station hears to APRS-IS** under Settings → iGate.

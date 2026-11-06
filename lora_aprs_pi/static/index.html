@@ -87,6 +87,21 @@
         <label>Comment
           <input name="beacon.comment" maxlength="80">
         </label>
+        <label>Send the comment with every … beacons
+          <input name="beacon.comment_every" type="number" inputmode="numeric" min="1" max="50">
+        </label>
+        <p class="hint">1 sends it with every beacon. 5 or 10 keeps most beacons short, saving air time at SF12,
+          and the maps still show the comment from the last one that carried it.</p>
+        <label>Status message (optional)
+          <span class="hint block">A short line about the station, shown as its status on aprs.fi and other maps.
+            It goes out after start-up and then every few hours, separately from the beacons. Say what the station
+            is and does; up to 62 characters, without | or ~. For example:
+            <i>Hill digi + iGate, 433.775 SF12, Experimental LACF</i></span>
+          <input name="beacon.status_text" maxlength="62" placeholder="Hill digi + iGate, 433.775 SF12, Experimental LACF">
+        </label>
+        <label>Send the status every (hours)
+          <input name="beacon.status_every_h" type="number" inputmode="numeric" min="1" max="24">
+        </label>
         <label>Path
           <input name="beacon.path" autocapitalize="characters" spellcheck="false" placeholder="WIDE1-1">
         </label>

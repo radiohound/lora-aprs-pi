@@ -20,6 +20,7 @@ VERSION = "0.4.0"
 DIGI_DELAY_S = (0.5, 2.0)      # random wait before repeating, so digipeaters don't all key up at once
 FIRST_BEACON_DELAY_S = 60
 RADIO_RETRY_S = 15
+STATUS_AFTER_BEACON_S = 15     # the first status message follows the first beacon by this much
 APRSIS_SOON_S = 20             # after a login or "Send beacon now": the position on APRS-IS this soon
 
 
@@ -45,6 +46,8 @@ class Station:
         self.beacon_due = time.time() + FIRST_BEACON_DELAY_S
         self.beacon_now_flag = threading.Event()
         self.beacon_number = 0
+        self.aprs_status_due = time.time() + FIRST_BEACON_DELAY_S + STATUS_AFTER_BEACON_S
+        self.last_status = None
         self.last_beacon = None
         self.beacon_note = None
 
@@ -190,6 +193,8 @@ class Station:
                     self._beacon(manual=True)
                 elif time.time() >= self.beacon_due:
                     self._beacon(manual=False)
+                if time.time() >= self.aprs_status_due:
+                    self._status()
                 self._run_digi_jobs()
                 if self.aprsis and time.time() >= self.is_position_due:
                     self._position_to_aprsis()
@@ -408,7 +413,10 @@ class Station:
         if fmt == "alternate":
             fmt = "lacf" if self.beacon_number % 2 else "standard"
         self.beacon_number += 1
-        tnc2 = aprs.build(call, bc["path"], aprs.position_info(pos[0], pos[1], bc["symbol"], bc["comment"], pos[2]))
+        # the comment rides on every Nth beacon only, so most beacons stay short
+        with_comment = (self.beacon_number - 1) % max(1, bc["comment_every"]) == 0
+        comment = bc["comment"] if with_comment else ""
+        tnc2 = aprs.build(call, bc["path"], aprs.position_info(pos[0], pos[1], bc["symbol"], comment, pos[2]))
         try:
             frame, used = frames.encode(tnc2, fmt)
         except ValueError as exc:
@@ -438,6 +446,39 @@ class Station:
                         "type": "position", "lat": round(pos[0], 5), "lon": round(pos[1], 5),
                         "power_dbm": level})
         log.info("TX %s beacon, %d bytes, %d ms: %s", used, len(frame), on_air * 1000, tnc2.decode())
+
+    def _status(self):
+        """The status message: over the air (and to APRS-IS when the iGate is on), after
+        start-up and then every few hours. Nothing when there is no text or no beacon."""
+        with self.lock:
+            cfg = copy.deepcopy(self.cfg)
+        bc, call = cfg["beacon"], cfg["station"]["callsign"]
+        self.aprs_status_due = time.time() + bc["status_every_h"] * 3600
+        if not bc["status_text"] or not bc["enabled"] or call == "N0CALL" or not self.radio:
+            return
+        info = ">" + bc["status_text"]
+        tnc2 = aprs.build(call, bc["path"], info)
+        fmt = "lacf" if bc["format"] == "lacf" else "standard"
+        try:
+            frame, used = frames.encode(tnc2, fmt)
+        except ValueError as exc:
+            log.warning("status not sent: %s", exc)
+            return
+        chip = None
+        if bc["auto_reduce_power"]:                  # no louder than the beacons are now
+            prof, _ = config.radio_settings(cfg)
+            chip = hardware.chip_power(min(self.auto_power.level, cfg["radio"]["power_dbm"]), prof)
+        on_air = self.radio.transmit(frame, chip)
+        if self.events:
+            self._feed("tx", self.events.tx(frame))
+        if self.aprsis:
+            self.aprsis.send(f"{call}>{aprs.TOCALL},TCPIP*:{info}")
+        self.last_status = {"time": time.time(), "text": bc["status_text"]}
+        with self.lock:
+            self.counts["tx"] += 1
+        self._remember({"dir": "tx", "format": used, "bytes": len(frame), "text": tnc2.decode(),
+                        "error": None, "source": call, "airtime_ms": round(on_air * 1000), "type": "status"})
+        log.info("TX %s status, %d bytes: %s", used, len(frame), tnc2.decode())
 
     # ---- settings ----
 
@@ -473,6 +514,9 @@ class Station:
             self.cfg = new
             if new["radio"] != old["radio"]:
                 self.radio_dirty = True
+            if (new["beacon"]["status_text"], new["beacon"]["status_every_h"]) != \
+                    (old["beacon"]["status_text"], old["beacon"]["status_every_h"]):
+                self.aprs_status_due = min(self.aprs_status_due, time.time() + STATUS_AFTER_BEACON_S)
             if new["beacon"]["interval_min"] != old["beacon"]["interval_min"]:
                 self.beacon_due = min(self.beacon_due, time.time() + new["beacon"]["interval_min"] * 60)
         if new["gps"] != old["gps"]:
@@ -527,6 +571,9 @@ class Station:
                     "enabled": cfg["beacon"]["enabled"], "format": cfg["beacon"]["format"],
                     "next_in_s": max(0, round(self.beacon_due - time.time())) if cfg["beacon"]["enabled"] else None,
                     "last": self.last_beacon, "note": self.beacon_note,
+                    "status": {"text": cfg["beacon"]["status_text"], "last": self.last_status,
+                               "next_in_s": max(0, round(self.aprs_status_due - time.time()))
+                               if cfg["beacon"]["status_text"] and cfg["beacon"]["enabled"] else None},
                     "auto_power": {"on": cfg["beacon"]["auto_reduce_power"], "level_dbm": self.auto_power.level,
                                    "max_dbm": cfg["radio"]["power_dbm"], "note": self.auto_power.note},
                 },

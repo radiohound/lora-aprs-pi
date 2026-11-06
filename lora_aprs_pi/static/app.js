@@ -48,7 +48,9 @@ function ago(t) {
 
 function inMinutes(s) {
   if (s < 90) return `${s} s`;
-  return `${Math.round(s / 60)} min`;
+  if (s < 5400) return `${Math.round(s / 60)} min`;
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return m ? `${h} h ${m} min` : `${h} h`;
 }
 
 // ---------- tabs ----------
@@ -169,8 +171,10 @@ function renderStatus(s) {
 
   const b = s.beacon;
   const fmt = { standard: "standard", lacf: "Experimental LACF", alternate: "alternating standard and Experimental LACF" }[b.format];
-  $("#s-beacon").textContent = b.enabled
-    ? `Next beacon in ${inMinutes(b.next_in_s)}, ${fmt} format.` : "Automatic beacons are off.";
+  const st = b.status || {};
+  $("#s-beacon").textContent = (b.enabled
+    ? `Next beacon in ${inMinutes(b.next_in_s)}, ${fmt} format.` : "Automatic beacons are off.")
+    + (st.next_in_s != null ? ` Next status message in ${inMinutes(st.next_in_s)}.` : "");
   $("#s-beacon-note").hidden = !b.note;
   $("#s-beacon-note").textContent = b.note || "";
   $("#s-beacon-last").hidden = !b.last;
@@ -227,7 +231,7 @@ function heardItem(e) {
   const li = el("li", e.dir === "tx" ? "sent" : e.text ? "" : "dropped");
   const l1 = el("div", "line1");
   l1.append(el("span", "who", e.source || (e.text ? "?" : "Unreadable packet")));
-  if (e.dir === "tx") l1.append(el("span", "tag sent", e.kind === "repeat" ? "Repeated" : "Sent"));
+  if (e.dir === "tx") l1.append(el("span", "tag sent", e.kind === "repeat" ? "Repeated" : e.type === "status" ? "Sent status" : "Sent"));
   if (e.repeating) l1.append(el("span", "tag sent", "Repeated"));
   if (e.own_repeat) l1.append(el("span", "tag gated", e.repeated_by ? `Your beacon, via ${e.repeated_by}` : "Your beacon"));
   if (e.gated) l1.append(el("span", "tag gated", "Gated"));

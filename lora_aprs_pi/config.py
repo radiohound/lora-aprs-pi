@@ -22,6 +22,9 @@ DEFAULTS = {
         "use_gps": False,
         "symbol": "/-",
         "comment": "LoRa APRS Pi",
+        "comment_every": 1,           # the comment goes with every Nth beacon (1 = every one)
+        "status_text": "",            # a status message (">text"), empty = none
+        "status_every_h": 6,          # sent after start-up, then this many hours apart
         "path": "WIDE1-1",
         "format": "standard",         # standard | lacf | alternate
         "auto_reduce_power": False,   # lower beacon power while a digipeater reports a strong signal
@@ -64,6 +67,8 @@ DEFAULTS = {
         "hotspot_password": "loraaprs",
     },
 }
+
+STATUS_MAX = 62                   # the APRS limit for a status message without a timestamp
 
 # Fixed for LoRa APRS; not offered in the web page.
 SYNC_WORD = 0x12
@@ -169,6 +174,23 @@ def check(cfg):
     if len(str(bc["symbol"])) != 2:
         errs["beacon.symbol"] = "Two characters: table and symbol"
     bc["comment"] = str(bc["comment"])[:80]
+    try:
+        bc["comment_every"] = int(bc["comment_every"])
+        if not 1 <= bc["comment_every"] <= 50:
+            raise ValueError
+    except (TypeError, ValueError):
+        errs["beacon.comment_every"] = "A number from 1 (every beacon) to 50"
+    # APRS status text: at most 62 characters, and | and ~ are not allowed in it
+    bc["status_text"] = " ".join(str(bc["status_text"]).split())
+    if len(bc["status_text"]) > STATUS_MAX or any(c in bc["status_text"] for c in "|~") \
+            or not bc["status_text"].isascii() or not bc["status_text"].isprintable():
+        errs["beacon.status_text"] = f"Up to {STATUS_MAX} plain characters, without | or ~"
+    try:
+        bc["status_every_h"] = int(bc["status_every_h"])
+        if not 1 <= bc["status_every_h"] <= 24:
+            raise ValueError
+    except (TypeError, ValueError):
+        errs["beacon.status_every_h"] = "Hours, 1 to 24"
     if bc["enabled"] and not bc["use_gps"] and (bc["latitude"] is None or bc["longitude"] is None):
         errs["beacon.latitude"] = "Enter a position, or use GPS"
 
