@@ -250,3 +250,9 @@ input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--fa
 .step.wait .mark { color: var(--tx); }
 
 .btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 0.3em 0 0.6em; }
+
+/* The chosen APRS symbol, above its drop-down */
+.sym-preview { display: block; margin: 0.35em 0; }
+.sym { position: relative; display: inline-block; width: 48px; height: 48px; vertical-align: middle; }
+.sym-cell { position: absolute; inset: 0; background-repeat: no-repeat; background-size: 768px 288px; }
+

@@ -14,8 +14,10 @@ from . import config, gps, hardware, igate
 log = logging.getLogger("web")
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-FILES = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
-TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+FILES = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css",
+         **{f"/symbols/symbols-{n}.png": f"symbols/symbols-{n}.png" for n in range(3)}}
+TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+         ".png": "image/png"}
 MAX_BODY = 64 * 1024
 
 

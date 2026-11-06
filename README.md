@@ -241,6 +241,7 @@ make run        # a pretend radio at http://localhost:8080
 | `lora_aprs_pi/aprs.py` | Building beacons, reading received packets |
 | `lora_aprs_pi/station.py` | The station: radio loop, heard list, beacons |
 | `lora_aprs_pi/igate.py` | APRS-IS connection, passcode, gating rules |
+| `lora_aprs_pi/static/symbols/` | The APRS symbol pictures shown in Settings: the [aprs.fi set by OH7LZB](https://github.com/hessu/aprs-symbols), under its own terms (see the README there) |
 | `lora_aprs_pi/mqtt.py` | The map feed: event lines and a small MQTT client |
 | `lora_aprs_pi/digi.py` | Digipeater path rules and RXT signal reports |
 | `lora_aprs_pi/power.py` | Auto reduced power |

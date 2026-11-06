@@ -71,7 +71,7 @@ PREAMBLE = 8
 
 SYMBOLS = {
     "/-": "House", "/>": "Car", "/[": "Person / hiker", "/O": "Balloon",
-    "/#": "Digipeater", "L&": "iGate (LoRa)", "/y": "Yagi antenna at house",
+    "/#": "Digipeater", "L#": "Digipeater (LoRa)", "L&": "iGate (LoRa)", "/y": "Yagi antenna at house",
     "/b": "Bicycle", "/k": "Truck", "/;": "Campground", "/r": "Antenna", "/_": "Weather station",
 }
 

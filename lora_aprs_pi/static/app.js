@@ -302,6 +302,7 @@ async function loadSettings() {
   const sym = $("#symbols");
   sym.replaceChildren(...Object.entries(options.symbols).map(([k, label]) => { const o = el("option", "", `${label} (${k})`); o.value = k; return o; }));
   fillForm($("#settings-form"), data.settings);
+  showSymbol();
   fillForm($("#w-hotspot"), data.settings);
   $("#pw-state").textContent = data.settings.web.password_set
     ? "A password is set. Enter a new one to change it." : "No password: anyone on this network can change settings.";
@@ -330,6 +331,35 @@ function showSerialPorts(ports) {
     b.addEventListener("click", () => { box.value = p; box.focus(); });
     return b;
   }));
+}
+
+// An APRS symbol drawn from the aprs.fi sprite sheets (16 x 6 cells of 48 px each).
+// Table "/" is the primary sheet; "\\" the alternate; any other table character is an
+// overlay: the alternate symbol with that character drawn on top.
+function symbolIcon(code) {
+  const box = el("span", "sym");
+  if (!code || code.length !== 2) return box;
+  const cell = (sheet, ch) => {
+    const i = ch.charCodeAt(0) - 33;
+    if (i < 0 || i > 93) return null;
+    const c = el("span", "sym-cell");
+    c.style.backgroundImage = `url(/symbols/symbols-${sheet}.png)`;
+    c.style.backgroundPosition = `${-(i % 16) * 48}px ${-Math.floor(i / 16) * 48}px`;
+    return c;
+  };
+  const table = code[0];
+  const base = cell(table === "/" ? 0 : 1, code[1]);
+  if (base) box.append(base);
+  if (table !== "/" && table !== "\\") {
+    const over = cell(2, table);
+    if (over) box.append(over);
+  }
+  return box;
+}
+
+function showSymbol() {
+  const code = $("#symbols").value;
+  $("#symbol-preview").replaceChildren(symbolIcon(code));
 }
 
 function fillForm(form, settings) {
@@ -422,6 +452,8 @@ async function save(form, changes, msgEl) {
     return false;
   }
 }
+
+$("#symbols").addEventListener("change", showSymbol);
 
 $("#settings-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
