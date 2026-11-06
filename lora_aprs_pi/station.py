@@ -20,6 +20,7 @@ VERSION = "0.4.0"
 DIGI_DELAY_S = (0.5, 2.0)      # random wait before repeating, so digipeaters don't all key up at once
 FIRST_BEACON_DELAY_S = 60
 RADIO_RETRY_S = 15
+APRSIS_SOON_S = 20             # after a login or "Send beacon now": the position on APRS-IS this soon
 
 
 class Station:
@@ -100,6 +101,8 @@ class Station:
         if ig["enabled"] and call != "N0CALL":
             code = ig["passcode"] if ig["passcode"] != "" else igate.passcode(call)
             self.aprsis = igate.AprsIs(ig["server"], ig["port"], call, code)
+            # announce the station on APRS-IS soon after (re)connecting, e.g. after a callsign change
+            self.is_position_due = min(self.is_position_due, time.time() + APRSIS_SOON_S)
         if old:
             old.stop()
 
@@ -380,6 +383,7 @@ class Station:
 
     def beacon_now(self):
         self.beacon_now_flag.set()
+        self.is_position_due = min(self.is_position_due, time.time() + APRSIS_SOON_S)   # and on APRS-IS
 
     def _beacon(self, manual):
         with self.lock:

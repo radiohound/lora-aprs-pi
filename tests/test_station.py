@@ -224,6 +224,17 @@ class TestStation(unittest.TestCase):
         self.st.stop()
         self.dir.cleanup()
 
+    def test_position_goes_to_aprsis_soon_after_a_callsign_change_or_beacon_now(self):
+        from lora_aprs_pi import station as station_mod
+        self.st.is_position_due = time.time() + 3600            # as if the last one just went out
+        errs = self.st.change_settings({"station": {"callsign": "K6ATV-10"},
+                                        "igate": {"enabled": True, "server": "127.0.0.1", "port": 9}})
+        self.assertEqual(errs, {})
+        self.assertLessEqual(self.st.is_position_due, time.time() + station_mod.APRSIS_SOON_S + 1)
+        self.st.is_position_due = time.time() + 3600
+        self.st.beacon_now()
+        self.assertLessEqual(self.st.is_position_due, time.time() + station_mod.APRSIS_SOON_S + 1)
+
     def wait_for(self, cond, timeout=5):
         end = time.time() + timeout
         while time.time() < end:
