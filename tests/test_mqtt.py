@@ -150,6 +150,17 @@ class TestEvents(unittest.TestCase):
         self.assertAlmostEqual(s["noise_floor"]["avg_dbm"], -104.0, places=1)       # a power average, not -106.7
         self.assertIsNone(self.ev.status()["noise_floor"])                          # the samples start again each minute
 
+    def test_status_counts_are_per_minute(self):
+        """Like Dire Wolf: each status line carries the counts since the previous one (the map adds them up)."""
+        for _ in range(3):
+            self.ev.rx(None, -120, -15, 0, None)
+        self.ev.rx(frames.PLAIN + PKT, -90, 5, 0, PKT)
+        s1 = self.ev.status()
+        self.assertEqual((s1["crc_errors"], s1["received"]["plain"]), (3, 1))
+        self.ev.rx(None, -120, -15, 0, None)
+        s2 = self.ev.status()
+        self.assertEqual((s2["crc_errors"], s2["received"]["plain"]), (1, 0))
+
 
 class TestSettings(unittest.TestCase):
     def test_defaults_filled_in_but_off(self):

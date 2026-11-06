@@ -189,10 +189,15 @@ class Events:
             avg = 10 * math.log10(sum(10 ** (s / 10) for s in samples) / len(samples))   # power average
             nf = {"avg_dbm": round(avg, 1), "min_dbm": int(min(samples)), "max_dbm": int(max(samples)),
                   "samples": len(samples)}
+        # Counts since the last status line, then start again, as Dire Wolf does: the map adds
+        # the minutes up, so a running total would be counted many times over.
         ev.update(uptime_s=int(time.monotonic() - self.started), loop_max_ms=loop_ms, noise_floor=nf,
                   rx_gain="boosted",
                   received=dict(self.received, dropped_no_reference=0, parse_failed=self.parse_failed),
                   crc_errors=self.crc_errors)
+        self.received = dict.fromkeys(CLASSES, 0)
+        self.parse_failed = 0
+        self.crc_errors = 0
         return ev
 
 
