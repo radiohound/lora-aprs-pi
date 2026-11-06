@@ -71,13 +71,24 @@ when you have several Pis.
 
 | Tab | What it shows |
 |---|---|
-| Status | Whether the radio is listening; radio settings; the power in use (including auto reduced power); APRS-IS login; MQTT; digipeater mode; GPS; packet counts; and the next beacon. **Send beacon now** sends one straight away. |
+| Status | Whether the radio is listening; the noise floor; radio settings; the power in use (including auto reduced power); APRS-IS login; MQTT; digipeater mode; the GPS, step by step (connected, receiving, position); packet counts, including damaged ones; and the next beacon and status message. **Send beacon now** sends one straight away, and the station's position to APRS-IS. |
 | Heard | Every packet, newest first, with signal, distance and bearing, and the raw packet. Tags show the format (Standard or Experimental LACF), **Gated** (sent to APRS-IS), **Repeated** (digipeated), **Sent** (your own transmissions, with their power), and **Your beacon, via …** (your beacon repeated by a digipeater, with its report when there is one). A packet that wasn't gated or repeated says why. |
-| Settings | Callsign, beacon (including auto reduced power), digipeater, iGate, MQTT, radio, GPS and the settings password. Changes apply as soon as you save. |
+| Settings | Callsign, beacon (with a picture of the chosen symbol, the comment and status message, and auto reduced power), digipeater, iGate, MQTT, radio, GPS (the serial devices found on the Pi are offered as buttons) and the settings password. Changes apply as soon as you save. |
 | WiFi | Join a network, or change and switch to the hotspot. |
 
 The bar under your callsign is the station's lamp: green while listening, amber
 just after transmitting, red when the radio has a problem (with the reason).
+
+**Noise floor** is what the receiver hears between packets (seconds when a packet is
+arriving are left out), averaged over the last minute. On a MeshAdv E22 board a quiet
+site reads about −100 dBm: below −97 shows as quiet, −97 to −85 as a little high, above
+−85 as much too high (something near the antenna is drowning out weak stations; see
+Troubleshooting).
+
+**GPS** shows three steps, each ticked, waiting or failed: connected (the serial device
+opened), receiving (good NMEA sentences arriving, or "garbled: check the baud rate"),
+and position (no fix yet with the satellites in view, a rough 2D fix, or a good fix with
+the satellites used and HDOP).
 
 <img src="phone.png" alt="The station's Status page on a phone, showing auto reduced power at work" width="300">
 
@@ -232,6 +243,41 @@ The defaults are the LoRa APRS standard used in North America and Europe:
 station you want to hear must use the same frequency, SF, bandwidth and coding
 rate.
 
+## Reaching it from elsewhere
+
+- **On the same network**: `http://<pi-name>.local`, or its address (`hostname -I` on the
+  Pi shows it).
+- **From anywhere**: [Tailscale](https://tailscale.com) gives your own devices a private
+  link. On the Pi run `curl -fsSL https://tailscale.com/install.sh | sh`, then
+  `sudo tailscale up` and approve it; install the Tailscale app on your phone or computer
+  with the same account; then open `http://` and the Pi's 100.x address (`tailscale ip -4`).
+  Use the address or the plain hostname: the page refuses other names (such as the long
+  `….ts.net` one) on purpose, to protect against DNS rebinding. Set a settings password.
+- **A terminal only**: Raspberry Pi Connect (`sudo apt install rpi-connect-lite`, then
+  `rpi-connect on`, `rpi-connect signin` and `loginctl enable-linger`) gives a shell on the
+  Pi from connect.raspberrypi.com.
+
+## Settings from a terminal
+
+The settings are one file, `/etc/lora-aprs-pi/config.json` (readable by root, as it holds
+passwords).
+
+- Read them: `sudo cat /etc/lora-aprs-pi/config.json`, or without passwords
+  `curl -s http://localhost/api/settings | python3 -m json.tool`.
+- Change one, checked and applied at once, as the page does (add
+  `-H 'X-Station-Password: …'` if a settings password is set):
+  ```
+  curl -s -X POST http://localhost/api/settings -H 'Content-Type: application/json' \
+    -H 'Origin: http://localhost' -d '{"digi":{"mode":"wide"}}'
+  ```
+  It answers `{"errors": {}}`, or names the field that needs fixing.
+- Or edit the file (`sudo nano /etc/lora-aprs-pi/config.json`), then restart the station
+  with `sudo systemctl restart lora-aprs-pi`. It reads the file only when it starts, and
+  saving on the page rewrites it.
+- Status: `curl -s http://localhost/api/status | python3 -m json.tool`. Send a beacon now:
+  `curl -s -X POST http://localhost/api/beacon -H 'Content-Type: application/json' -H 'Origin: http://localhost' -d '{}'`.
+- Log: `journalctl -u lora-aprs-pi -f`.
+
 ## Trying it without a Pi
 
 On any computer with Python 3 and a C compiler:
@@ -290,6 +336,21 @@ Logs: `journalctl -u lora-aprs-pi -f`
   doesn't add RXT), so auto reduced power can't use it.
 - **Beacon power stays at the maximum**: no report has come back yet. See Auto
   reduced power above for what it needs.
+- **Noise floor high**: first find whether it comes in through the antenna. With the
+  beacon and digipeater off (never transmit without an antenna), unscrew the antenna: the
+  reading then is the board's own floor (about −97 dBm on a MeshAdv E22). If it drops a
+  lot, something near the antenna or its cable is the source. Common ones: an Ethernet
+  cable plugged into the Pi (the biggest one in testing: use WiFi, or a ferrite and
+  shielded cable), a nearby power supply, and other 433 MHz radios close by. An SDR shows
+  what is on the air: busy 433.92 MHz household sensors 150 kHz away can raise the reading
+  without filling the LoRa channel itself.
+- **Many packets fail the CRC**: usually weak stations at the edge of what SF12 can hear,
+  or a high noise floor (above). Strong packets decoding with a positive SNR means the
+  channel itself is fine.
+- **GPS step fails**: "not connected" is the device name (try the buttons under the box, or
+  unplug and plug in again); "no data" or "garbled" is the baud rate (USB `ttyACM` GPSes
+  ignore it; `ttyUSB` and `serial0` ones usually want 9600). With no GPS at the site, leave
+  the device box empty.
 
 ## Licence
 
