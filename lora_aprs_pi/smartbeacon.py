@@ -1,4 +1,8 @@
-"""SmartBeaconing for a moving tracker (the HamHUD method most APRS trackers use).
+"""Smart Beaconing for a moving tracker.
+
+This uses the methods of SmartBeaconing, the algorithm devised by Tony Arnerich, KD7TA, and
+Steve Bragg, KA9MVA, for the HamHUD, and used by most APRS trackers since. The rules and the
+standard settings are theirs; this code is written fresh from the published description.
 
 From the GPS speed and heading:
   - stopped or slow (below the low speed): a beacon every "slow rate"

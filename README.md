@@ -118,7 +118,10 @@ lossless position block.
 ## Smart Beaconing (moving trackers)
 
 Settings → Beacon → **Smart Beaconing for moving trackers** sets the beacon rate from the GPS
-speed instead of a fixed interval, as most trackers do (the HamHUD SmartBeaconing method):
+speed instead of a fixed interval, as most trackers do. It uses the methods of
+**SmartBeaconing**, the algorithm devised by Tony Arnerich, KD7TA, and Steve Bragg, KA9MVA,
+for the HamHUD: the same rules and the same standard settings, written fresh for this
+program (no code was copied from another implementation).
 
 - below the **low speed** (3 mph): one beacon every **slow rate** (30 min)
 - at the **high speed** (60 mph) or faster: one every **fast rate** (60 s)

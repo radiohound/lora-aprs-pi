@@ -115,7 +115,8 @@
         <label class="check"><input type="checkbox" name="beacon.smart_beaconing" id="sb-on"> Smart Beaconing for moving trackers</label>
         <p class="hint">Beacons often while moving fast, rarely when stopped, and sends an extra one on turns so the track
           follows the road. Needs a GPS and "Use the GPS position". Replaces the "Every (minutes)" setting while on.
-          Beacons from the GPS also carry speed and heading.</p>
+          Beacons from the GPS also carry speed and heading. Uses the SmartBeaconing method by
+          Tony Arnerich, KD7TA, and Steve Bragg, KA9MVA.</p>
         <div id="sb-settings" class="grid" hidden>
           <label>Slow rate (minutes) <input name="beacon.sb_slow_min" type="number" inputmode="numeric" min="1" max="120"></label>
           <label>Fast rate (seconds) <input name="beacon.sb_fast_s" type="number" inputmode="numeric" min="10" max="600"></label>
