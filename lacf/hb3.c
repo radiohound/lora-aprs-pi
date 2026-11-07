@@ -469,8 +469,7 @@ static int decode_impl(const uint8_t *fr, size_t n, char *tnc2, size_t cap, hb3_
     else { if (end < b + 4) return HB3_ERR_CONTENT; L = fr[b]; if (L < 1) return HB3_ERR_CONTENT; want = (uint16_t)(fr[b + 1] | fr[b + 2] << 8); bodyp = fr + b + 3; bn = end - b - 3; hasL = 1; }
     /* the CRC is over the bytes as sent: it needs no model, so a relay without the model checks it too */
     if (crc_wire(hdr, V, hascap ? capb : NULL, fr + 4, path_start - 4, fr + front_len, cs - front_len, hasL, (uint8_t)L, bodyp, bn) != want) return HB3_ERR_CRC;
-    if (structural) infof[0] = 0;
-    else if (cc == 3) {                                                    /* plain content uses no model: the model bits are ignored */
+    if (cc == 3) {                                                         /* plain content uses no model: the model bits are ignored, so a relay without the model checks it like any receiver */
         size_t tl = bn;
         if (tl > 255) return HB3_ERR_CONTENT;
         if (memchr(bodyp, 0, tl)) return HB3_ERR_CONTENT;                 /* strict: no NUL in a TNC2 packet */
@@ -485,7 +484,12 @@ static int decode_impl(const uint8_t *fr, size_t n, char *tnc2, size_t cap, hb3_
             if (alt.present) strcat(infof, alt.text);
             { size_t cur = strlen(infof); memcpy(infof + cur, comment + off, tl - off); infof[cur + tl - off] = 0; }
         }
+        if (structural) infof[0] = 0;                                      /* the front only: the information field is not given */
         if (info) { info->cc = 1; info->payload_len = 0; }
+    } else if (structural) {                                               /* LACF content without the model: the two rules that need only L and the payload length */
+        if (4 + bn >= 3 + L) return HB3_ERR_SIZE;
+        if (kind == 3 && alt.present && alt.offset > L) return HB3_ERR_POSITION;
+        infof[0] = 0;
     } else {
         size_t pn = bn; int ok;
         if (ver != MODEL_VERSION) return HB3_ERR_VERSION;                  /* LACF content needs the model */
