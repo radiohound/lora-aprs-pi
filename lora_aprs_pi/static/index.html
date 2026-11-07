@@ -109,6 +109,7 @@
           <select name="beacon.format">
             <option value="standard">Standard (every LoRa APRS station can hear it)</option>
             <option value="lacf">Experimental LACF (smaller; only Experimental LACF stations can hear it)</option>
+            <option value="lacf3">Experimental LACF 3 (development proposal, type 03; only LACF 3 stations can hear it; sends the station's capabilities now and then)</option>
             <option value="alternate">Alternate standard and Experimental LACF</option>
           </select>
         </label>
@@ -132,7 +133,7 @@
         <label class="check"><input type="checkbox" name="beacon.auto_reduce_power"> Auto reduced power</label>
         <p class="hint">Lowers the beacon power, never above the power set under Radio, while a digipeater
           reports hearing you with plenty to spare. Goes back up when the margin gets thin or no report comes back.
-          Needs Experimental LACF beacons (or alternate) and an Experimental LACF digipeater, since only Experimental LACF repeats carry the report.</p>
+          Needs Experimental LACF or LACF 3 beacons (or alternate) and a digipeater of that kind, since only those repeats carry the report.</p>
       </fieldset>
 
       <fieldset>
@@ -144,7 +145,7 @@
             <option value="wide">Wide area: repeat WIDE1-1 and WIDE2-N</option>
           </select>
         </label>
-        <p class="hint">Packets addressed to this station's callsign are repeated too. Experimental LACF packets are repeated as Experimental LACF, with this station's signal report added.</p>
+        <p class="hint">Packets addressed to this station's callsign are repeated too. Experimental LACF and LACF 3 packets are repeated in their own format, with this station's signal report added. A LACF 3 packet this station cannot decode is still repeated, without being read or used.</p>
       </fieldset>
 
       <fieldset>

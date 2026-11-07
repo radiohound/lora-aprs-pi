@@ -37,10 +37,10 @@ def decode(raw):
     return {"format": "other", "text": None, "error": "not a LoRa APRS frame", "lacf": None}
 
 
-def encode(tnc2, fmt):
+def encode(tnc2, fmt, cap_bytes=None):
     """The frame to send for a TNC2 packet, and which format was used.
 
-    fmt is 'standard' or 'lacf'. LACF falls back to a standard frame only when
+    fmt is 'standard', 'lacf' or 'lacf3' (cap_bytes: the four capability bytes to carry, or None). LACF falls back to a standard frame only when
     the codec can't encode the packet. A packet with a broken WIDEn-N path is
     refused outright, since spec 11 says it must not be sent in any form.
     """
@@ -50,6 +50,12 @@ def encode(tnc2, fmt):
         frame = lacf.encode(tnc2)
         if frame:
             return frame, "lacf"
+    if fmt == "lacf3" and lacf3.available():
+        if not lacf3.path_ok(tnc2):
+            raise ValueError("the path has a WIDEn-N that breaks the APRS rule")
+        frame = lacf3.encode(tnc2, cap_bytes)
+        if frame:
+            return frame, "lacf3"
     frame = PLAIN + tnc2
     if len(frame) > 255:
         raise ValueError("packet too long for one LoRa frame")

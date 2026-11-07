@@ -5,14 +5,20 @@ A LoRa APRS station for a Raspberry Pi with a LoRa HAT, set up from your phone.
 - Receives standard LoRa APRS packets and the newer, smaller
   [Experimental LACF](https://github.com/radiohound/lora-aprs-ideas) frames
   (LACF for short below; the format is still a draft and may change), and lists
-  everything it hears with signal strength, distance and bearing.
-- Sends a position beacon in standard format, LACF, or alternating between the two.
+  everything it hears with signal strength, distance and bearing. It also reads
+  **LACF 3**, a development proposal for the next version of the frame (type `3C FF 03`,
+  "3.0.0-dev.1": not adopted, may change, and so far only stations built with it can hear it).
+- Sends a position beacon in standard format, LACF, LACF 3, or alternating between standard and LACF.
 - Works as an iGate: passes what it hears to APRS-IS, LACF packets included, so
   LACF stations show up on aprs.fi like any other.
 - Can share what it hears with the [LoRa APRS map](https://tiles.aivu.com/lora) over MQTT
   (filled in, off until you tick it).
 - Works as a digipeater: fill-in (WIDE1-1) or wide area (WIDE1-1 and WIDE2-N).
-  LACF packets are repeated as LACF with this station's signal report added.
+  LACF packets are repeated as LACF with this station's signal report added; LACF 3 packets
+  likewise, and a LACF 3 packet this station cannot decode (a newer table than it holds) is
+  still repeated, without being read.
+- Keeps a table of the stations it hears and what the LACF 3 ones say they can do (digipeater,
+  iGate, spreading factor, power), shown in the status data at `/api/status`.
 - Shows when a digipeater repeats your beacon and, for LACF, how well it heard you.
 - Auto reduced power: lowers the beacon power while a digipeater reports a strong
   signal, and raises it again when the margin gets thin.
@@ -72,7 +78,7 @@ when you have several Pis.
 | Tab | What it shows |
 |---|---|
 | Status | Whether the radio is listening; the noise floor; radio settings; the power in use (including auto reduced power); APRS-IS login; MQTT; digipeater mode; the GPS, step by step (connected, receiving, position); packet counts, including damaged ones; and the next beacon and status message. **Send beacon now** sends one straight away, and the station's position to APRS-IS. |
-| Heard | Every packet, newest first, with signal, distance and bearing, and the raw packet. Tags show the format (Standard or Experimental LACF), **Gated** (sent to APRS-IS), **Repeated** (digipeated), **Sent** (your own transmissions, with their power), and **Your beacon, via …** (your beacon repeated by a digipeater, with its report when there is one). A packet that wasn't gated or repeated says why. |
+| Heard | Every packet, newest first, with signal, distance and bearing, and the raw packet. Tags show the format (Standard, Experimental LACF or Experimental LACF 3), **Gated** (sent to APRS-IS), **Repeated** (digipeated), **Sent** (your own transmissions, with their power), and **Your beacon, via …** (your beacon repeated by a digipeater, with its report when there is one). A packet that wasn't gated or repeated says why. |
 | Settings | Callsign, beacon (with a picture of the chosen symbol, the comment and status message, and auto reduced power), digipeater, iGate, MQTT, radio, GPS (the serial devices found on the Pi are offered as buttons) and the settings password. Changes apply as soon as you save. |
 | WiFi | Join a network, or change and switch to the hotspot. |
 
@@ -97,8 +103,16 @@ the satellites used and HDOP).
 - **Standard**: `3C FF 01` + text. Every LoRa APRS station can hear it.
 - **Experimental LACF**: `3C FF 02` + the compact frame, typically about 40% fewer bytes,
   so less time on air. Only stations that understand LACF can hear it.
-- **Alternate**: one of each in turn, so everyone hears you and LACF stations
-  get the shorter frame.
+- **Experimental LACF 3**: `3C FF 03` + the compact frame of the 3.0.0-dev.1 proposal
+  (spec 12 of lora-aprs-ideas). The frame has a CRC over the bytes as sent, so a digipeater
+  that doesn't hold its compression table can still check and relay it. The beacon also
+  carries four **capability bytes** now and then (what this station is: digipeater and/or
+  iGate, spreading factor, bandwidth, coding rate, power, frequency preset): in the first
+  beacon after start-up, then every 8th but at most hourly, at least every 6 hours, and
+  as soon as one of those settings changes. It is a development proposal: only stations
+  built with the proposal can hear it, and the format may still change.
+- **Alternate**: one of each in turn (standard and Experimental LACF, not LACF 3), so everyone
+  hears you and LACF stations get the shorter frame.
 
 Beacons use the plain (uncompressed) position format, which LACF carries in its
 lossless position block.
@@ -112,8 +126,8 @@ lossless position block.
   no `|` or `~`), for example `Hill digi + iGate, 433.775 SF12, Experimental LACF`. It is
   sent as an APRS status packet (`>text`) about 15 seconds after the first beacon, then
   every few hours (6 by default), over the air and, with the iGate on, straight to APRS-IS.
-  aprs.fi shows it as the station's status. It goes out in Experimental LACF only when the
-  beacon format is LACF; otherwise standard.
+  aprs.fi shows it as the station's status. It goes out in Experimental LACF or LACF 3 only when
+  the beacon format is that one; otherwise standard.
 
 ## Smart Beaconing (moving trackers)
 
@@ -201,19 +215,26 @@ Choose under Settings → Digipeater:
 - **LACF packets** are repeated as LACF by copying their content and adding this
   station's RXT tuple: signal strength, SNR, frequency offset and time to hop.
   Standard packets are repeated as standard text.
+- **LACF 3 packets** (`3C FF 03`) are repeated the same way, as LACF 3 with this station's tuple
+  added. When the packet uses a compression table this station does not hold (or a destination
+  code it does not know), the station checks what it can without the table (the structure
+  and the CRC), applies the same path rule, copies the content byte for byte and adds its tuple.
+  Such a packet is never shown in the Heard list as text, never sent to APRS-IS and never used;
+  the Heard entry says it was not decoded here. This is what lets an old hilltop digipeater
+  keep relaying frames made with newer tables.
 
 ## Hearing your beacon repeated
 
 When a digipeater repeats this station's beacon and the station hears the
 repeat, the Heard tab marks it **Your beacon, via** the digipeater. If the
-repeat is LACF, it also shows the digipeater's report of how well it heard
+repeat is LACF or LACF 3, it also shows the digipeater's report of how well it heard
 you (RSSI and SNR), next to how well you heard its repeat.
 
 ## Auto reduced power
 
 Settings → Beacon → **Auto reduced power** lowers the beacon's power while a
 digipeater reports hearing you with plenty to spare, saving battery and
-channel. It works from the digipeater's LACF report, so it needs LACF (or
+channel. It works from the digipeater's LACF report, so it needs LACF or LACF 3 (or
 alternate) beacons, a path such as `WIDE1-1`, and a digipeater in range that adds
 a signal report (RXT) when it repeats. Another LoRa APRS Pi does; so do the LACF
 builds of the iGate and tracker firmware. Dire Wolf's LACF build repeats LACF
@@ -316,6 +337,9 @@ make run        # a pretend radio at http://localhost:8080
 | `lora_aprs_pi/hardware.py` | Board pin profiles and the power limits |
 | `lora_aprs_pi/frames.py` | Standard and LACF frames |
 | `lora_aprs_pi/lacf.py` | Python wrapper for the LACF C codec |
+| `lora_aprs_pi/lacf3.py` | The same for LACF 3 (type 03): decode, encode, relay with and without the table, capability bytes |
+| `lora_aprs_pi/capability.py` | The capability bytes from the settings, and when they are sent |
+| `lora_aprs_pi/neighbours.py` | The table of stations heard and what they announced |
 | `lora_aprs_pi/aprs.py` | Building beacons, reading received packets |
 | `lora_aprs_pi/station.py` | The station: radio loop, heard list, beacons |
 | `lora_aprs_pi/igate.py` | APRS-IS connection, passcode, gating rules |
@@ -328,7 +352,7 @@ make run        # a pretend radio at http://localhost:8080
 | `lora_aprs_pi/web.py`, `static/` | The web page and its API |
 | `lora_aprs_pi/wifi.py` | WiFi and the hotspot, through NetworkManager |
 | `lora_aprs_pi/gps.py` | Optional NMEA GPS on a serial port |
-| `lacf/` | The LACF reference codec, copied from lora-aprs-ideas |
+| `lacf/` | The LACF reference codecs (`hb.c` for type 02, `hb3.c` for LACF 3), copied from lora-aprs-ideas |
 | `/etc/lora-aprs-pi/config.json` | Your settings, on the Pi |
 | `/etc/lora-aprs-pi/power-state.json` | The auto reduced power level, kept across restarts |
 

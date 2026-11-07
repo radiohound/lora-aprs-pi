@@ -125,7 +125,7 @@ function renderStatus(s) {
   if (apNow.on) pn.textContent = apNow.level_dbm < apNow.max_dbm
     ? `Auto reduced power is on: beacons are going out at about ${apNow.level_dbm} dBm right now. This box is the maximum.`
     : `Auto reduced power is on: beacons are at the maximum right now. This box is the maximum.`;
-  $("#s-lacf").textContent = s.lacf.available ? "Ready: sends and receives Experimental LACF frames" : s.lacf.error;
+  $("#s-lacf").textContent = s.lacf.available ? "Ready: sends and receives Experimental LACF frames" + (s.lacf.type03 ? " and LACF 3 (type 03, development proposal)" : "") : s.lacf.error;
   $("#s-lacf").className = s.lacf.available ? "" : "bad";
 
   const g = s.gps;
@@ -170,7 +170,7 @@ function renderStatus(s) {
     `Auto reduced: about ${ap.level_dbm} dBm at the antenna (set maximum ${ap.max_dbm} dBm). ${ap.note}.`;
 
   const b = s.beacon;
-  const fmt = { standard: "standard", lacf: "Experimental LACF", alternate: "alternating standard and Experimental LACF" }[b.format];
+  const fmt = { standard: "standard", lacf: "Experimental LACF", lacf3: "Experimental LACF 3", alternate: "alternating standard and Experimental LACF" }[b.format];
   const st = b.status || {};
   const sb = b.smart;
   const sbText = !sb ? "" : !sb.on ? ` Smart Beaconing is ticked but ${sb.note}.`
@@ -184,7 +184,7 @@ function renderStatus(s) {
   $("#s-beacon-note").textContent = b.note || "";
   $("#s-beacon-last").hidden = !b.last;
   if (b.last) $("#s-beacon-last").textContent =
-    `Last sent ${ago(b.last.time)}, ${b.last.format === "lacf" ? "Experimental LACF" : "standard"}, ${b.last.bytes} bytes\n${b.last.text}`;
+    `Last sent ${ago(b.last.time)}, ${b.last.format === "lacf" ? "Experimental LACF" : b.last.format === "lacf3" ? "Experimental LACF 3" : "standard"}, ${b.last.bytes} bytes\n${b.last.text}`;
   $("#s-version").textContent = `LoRa APRS Pi ${s.version}, running ${inMinutes(s.uptime_s)}`;
 }
 

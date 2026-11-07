@@ -7,7 +7,7 @@ what the station transmits in `sent` so tests can check it.
 import random
 import time
 
-from . import lacf
+from . import lacf, lacf3
 from .sx126x import airtime_s
 
 PLAIN = b"<\xff\x01"
@@ -19,6 +19,10 @@ SAMPLE_PACKETS = [
     b"N0DEMO-11>APLRT1,WIDE1-1:>Balloon payload test, all systems nominal",
     b"N0TEST-5>APLRT1:!3658.00N/12140.00W-Base station",
 ]
+
+# A type 03 frame of a model this build does not hold (from the pass-through vectors): the station can only relay it.
+NO_MODEL_FRAME = bytes.fromhex(
+    "3cff0323874755da4c3a09121003ef9998938a5c6b04d0580143f62d8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa")
 
 
 class SimRadio:
@@ -45,6 +49,13 @@ class SimRadio:
         frame = PLAIN + text
         if lacf.available() and random.random() < 0.5:
             frame = lacf.encode(text) or frame
+        elif lacf3.available() and random.random() < 0.5:
+            roll = random.random()
+            if roll < 0.15:
+                frame = NO_MODEL_FRAME
+            else:                                          # now and then with capability bytes (a digipeater)
+                cap = lacf3.cap_pack(2, 1, 7, 1, 0, 20, 2) if roll < 0.5 else None
+                frame = lacf3.encode(text, cap) or frame
         if random.random() < 0.05:
             return (None, -128.0, -14.5, 0)                # an occasional CRC error
         return (frame, round(random.uniform(-125, -80), 1), round(random.uniform(-12, 9), 2),

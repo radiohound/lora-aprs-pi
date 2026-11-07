@@ -140,5 +140,5 @@ class AutoPower:
     def sent(self, info, fmt, path):
         """Note a beacon just sent at the current level. Only LACF beacons with a path can get a report."""
         self.base = self.level
-        self.awaiting = info if (fmt == "lacf" and path) else None
+        self.awaiting = info if (fmt in ("lacf", "lacf3") and path) else None
         self.reports = []

@@ -1,11 +1,12 @@
 """LACF 3.0.0-dev.1 (type 03) frames against the vectors of the proposal repository."""
 
+import json
 import os
 import tempfile
 import time
 import unittest
 
-from lora_aprs_pi import frames, lacf3, mqtt, neighbours
+from lora_aprs_pi import capability, config, frames, lacf3, mqtt, neighbours
 from lora_aprs_pi import station
 from lora_aprs_pi.station import Station
 from lora_aprs_pi.lacf import LacfError
@@ -56,7 +57,7 @@ class TestType03(unittest.TestCase):
         for frame, tnc2, capb in vectors("vectors_hb3_cap_v1.txt"):
             got, details = lacf3.decode(bytes.fromhex(frame))
             self.assertEqual(got, bytes.fromhex(tnc2))
-            self.assertEqual(details["capability_bytes"], bytes.fromhex(capb))
+            self.assertEqual(details["capability_hex"], capb)
             self.assertEqual(lacf3.encode(bytes.fromhex(tnc2), bytes.fromhex(capb)), bytes.fromhex(frame))
             n += 1
         self.assertGreater(n, 3)
@@ -132,7 +133,7 @@ class TestReceive(unittest.TestCase):
     def test_capability_frame_reaches_the_details(self):
         frame, _, capb = next(vectors("vectors_hb3_cap_v1.txt"))
         got = frames.decode(bytes.fromhex(frame))
-        self.assertEqual(got["lacf"]["capability_bytes"], bytes.fromhex(capb))
+        self.assertEqual(got["lacf"]["capability_hex"], capb)
         self.assertIn("role", got["lacf"]["capabilities"])
 
 
@@ -173,6 +174,8 @@ class TestStationNeighbours(unittest.TestCase):
         self.assertIsNotNone(n["capabilities"])
         heard = self.st.heard_since(0)
         self.assertEqual(heard[-1]["format"], "lacf3")
+        json.dumps(heard)                          # the Heard list goes to the web page as JSON
+        json.dumps(self.st.status())
 
 
 @unittest.skipUnless(lacf3.available(), "run 'make' first")
@@ -254,6 +257,92 @@ class TestStationRepeatsType03(unittest.TestCase):
         self.st._received(bytes(bad), -90.0, 3.0, 0)
         time.sleep(0.5)
         self.assertEqual(self.st.radio.sent, [])
+
+
+class TestCapabilitySchedule(unittest.TestCase):
+    CAP = b"\x01\x02\x03\x04"
+
+    def test_first_frame_then_every_8th_but_not_within_an_hour(self):
+        s = capability.Schedule()
+        self.assertTrue(s.due(self.CAP, 0))
+        s.sent(True, self.CAP, 0)
+        for i in range(1, 12):                       # frames 1..11 within the hour: never
+            self.assertFalse(s.due(self.CAP, i * 60), i)
+            s.sent(False, self.CAP, i * 60)
+        self.assertTrue(s.due(self.CAP, 3700))       # the count is past 8 and the hour is over
+
+    def test_every_8th_exactly(self):
+        s = capability.Schedule()
+        s.sent(True, self.CAP, 0)
+        t = 4000
+        for i in range(1, 8):
+            self.assertFalse(s.due(self.CAP, t), i)
+            s.sent(False, self.CAP, t)
+        self.assertTrue(s.due(self.CAP, t))          # the 8th frame
+
+    def test_at_least_every_6_hours_and_on_a_change(self):
+        s = capability.Schedule()
+        s.sent(True, self.CAP, 0)
+        self.assertFalse(s.due(self.CAP, 6 * 3600 - 1))
+        self.assertTrue(s.due(self.CAP, 6 * 3600))
+        self.assertTrue(s.due(b"\x01\x02\x03\x05", 10))
+
+    def test_fields_from_the_settings(self):
+        cfg = config.load("/nonexistent/config.json")
+        cfg["digi"]["mode"] = "fill-in"
+        cfg["igate"]["enabled"] = True
+        cfg["radio"].update(freq_mhz=433.775, sf=12, bw_khz=125, cr=5, power_dbm=22)
+        self.assertEqual(capability.fields(cfg), (5, 1, 7, 1, 0, 22, 2))
+        cfg["igate"]["enabled"] = False
+        cfg["digi"]["mode"] = "off"
+        cfg["radio"]["freq_mhz"] = 868.1
+        self.assertEqual(capability.fields(cfg)[0], 1)
+        self.assertEqual(capability.fields(cfg)[6], 0)
+
+
+@unittest.skipUnless(lacf3.available(), "run 'make' first")
+class TestStationBeaconsType03(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.st = Station(os.path.join(self.dir.name, "config.json"), simulate=True)
+        self.st.start()
+        errs = self.st.change_settings({"station": {"callsign": "K6ATV-10"}, "digi": {"mode": "fill-in"},
+                                        "beacon": {"enabled": True, "latitude": 37.02, "longitude": -121.6,
+                                                   "format": "lacf3", "comment": "Hill digi", "comment_every": 1}})
+        self.assertEqual(errs, {})
+        self.st.radio_dirty = False
+        end = time.time() + 5
+        while self.st.radio is None and time.time() < end:
+            time.sleep(0.05)
+
+    def tearDown(self):
+        self.st.stop()
+        self.dir.cleanup()
+
+    def caps(self):
+        return [lacf3.decode(f)[1]["capabilities"] for f in self.st.radio.sent]
+
+    def test_beacons_are_type_03_and_announce_on_schedule(self):
+        for _ in range(9):
+            self.st._beacon(manual=True)
+        sent = self.st.radio.sent
+        self.assertTrue(all(f.startswith(lacf3.PREFIX) for f in sent))
+        carried = [lacf3.decode(f)[1]["capabilities"] is not None for f in sent]
+        self.assertEqual(carried[0], True)                 # the first frame after start-up
+        self.assertEqual(carried[1:], [False] * 8)         # then not within the hour, whatever the count
+        cap = lacf3.decode(sent[0])[1]["capabilities"]
+        self.assertEqual((cap["role"], cap["sf"], cap["bw"], cap["preset"]), (2, 7, 1, 2))
+
+    def test_a_settings_change_announces_at_once(self):
+        self.st._beacon(manual=True)
+        self.st._beacon(manual=True)
+        self.st.change_settings({"digi": {"mode": "off"}})
+        self.st.radio_dirty = False
+        self.st._beacon(manual=True)
+        caps = [lacf3.decode(f)[1]["capabilities"] for f in self.st.radio.sent]
+        self.assertIsNotNone(caps[0])
+        self.assertIsNone(caps[1])
+        self.assertEqual(caps[2]["role"], 1)
 
 
 class TestNeighbours(unittest.TestCase):

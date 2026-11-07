@@ -26,7 +26,7 @@ DEFAULTS = {
         "status_text": "",            # a status message (">text"), empty = none
         "status_every_h": 6,          # sent after start-up, then this many hours apart
         "path": "WIDE1-1",
-        "format": "standard",         # standard | lacf | alternate
+        "format": "standard",         # standard | lacf | lacf3 | alternate
         "auto_reduce_power": False,   # lower beacon power while a digipeater reports a strong signal
         "smart_beaconing": False,     # for a moving tracker: rate from GPS speed, extra beacon on turns
         "sb_slow_min": 30,            # stopped or slow: one beacon this many minutes apart
@@ -192,7 +192,7 @@ def check(cfg):
         errs["beacon.sb_high_mph"] = "Higher than the low speed"
     if bc["smart_beaconing"] and not bc["use_gps"]:
         errs["beacon.smart_beaconing"] = "Needs the GPS position (tick Use the GPS position)"
-    if bc["format"] not in ("standard", "lacf", "alternate"):
+    if bc["format"] not in ("standard", "lacf", "lacf3", "alternate"):
         errs["beacon.format"] = "Choose a format"
     if len(str(bc["symbol"])) != 2:
         errs["beacon.symbol"] = "Two characters: table and symbol"

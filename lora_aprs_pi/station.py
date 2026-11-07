@@ -9,7 +9,7 @@ import random
 import threading
 import time
 
-from . import aprs, config, digi, frames, hardware, igate, lacf, lacf3, mqtt, neighbours, power, smartbeacon
+from . import aprs, capability, config, digi, frames, hardware, igate, lacf, lacf3, mqtt, neighbours, power, smartbeacon
 from .sx126x import airtime_s
 from .gps import Gps
 from .sx126x import RadioError
@@ -46,6 +46,7 @@ class Station:
         self.beacon_due = time.time() + FIRST_BEACON_DELAY_S
         self.beacon_now_flag = threading.Event()
         self.beacon_number = 0
+        self.cap_schedule = capability.Schedule()
         self.smart = smartbeacon.SmartBeacon()
         self.aprs_status_due = time.time() + FIRST_BEACON_DELAY_S + STATUS_AFTER_BEACON_S
         self.last_status = None
@@ -436,6 +437,18 @@ class Station:
         self.beacon_now_flag.set()
         self.is_position_due = min(self.is_position_due, time.time() + APRSIS_SOON_S)   # and on APRS-IS
 
+    def _encode_own(self, tnc2, fmt, cfg):
+        """frames.encode for one of our own frames; a type 03 frame carries the capability bytes when the schedule says so."""
+        if fmt != "lacf3" or not lacf3.available():
+            return frames.encode(tnc2, fmt)
+        cap = lacf3.cap_pack(*capability.fields(cfg))
+        now = time.time()
+        with_caps = self.cap_schedule.due(cap, now)
+        frame, used = frames.encode(tnc2, fmt, cap if with_caps else None)
+        if used == "lacf3":
+            self.cap_schedule.sent(with_caps, cap, now)
+        return frame, used
+
     def _beacon(self, manual):
         with self.lock:
             cfg = copy.deepcopy(self.cfg)
@@ -469,7 +482,7 @@ class Station:
         tnc2 = aprs.build(call, bc["path"], aprs.position_info(pos[0], pos[1], bc["symbol"], comment, pos[2],
                                                                course if speed_kn is not None else None, speed_kn))
         try:
-            frame, used = frames.encode(tnc2, fmt)
+            frame, used = self._encode_own(tnc2, fmt, cfg)
         except ValueError as exc:
             self.beacon_note = f"Beacon not sent: {exc}"
             return
@@ -510,9 +523,9 @@ class Station:
             return
         info = ">" + bc["status_text"]
         tnc2 = aprs.build(call, bc["path"], info)
-        fmt = "lacf" if bc["format"] == "lacf" else "standard"
+        fmt = bc["format"] if bc["format"] in ("lacf", "lacf3") else "standard"
         try:
-            frame, used = frames.encode(tnc2, fmt)
+            frame, used = self._encode_own(tnc2, fmt, cfg)
         except ValueError as exc:
             log.warning("status not sent: %s", exc)
             return

@@ -147,7 +147,7 @@ def _details(info):
         "rxt": [{"index": info.rxt.idx[i], "bytes": list(info.rxt.t[i])}
                 for i in range(info.rxt.n)] if info.has_rxt else [],
         "capabilities": cap_parse(bytes(info.cap)) if info.has_cap else None,
-        "capability_bytes": bytes(info.cap) if info.has_cap else None,
+        "capability_hex": bytes(info.cap).hex() if info.has_cap else None,   # a string: the details go to the web page as JSON
     }
 
 
