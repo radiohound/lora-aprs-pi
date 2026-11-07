@@ -16,7 +16,7 @@ from .sx126x import RadioError
 
 log = logging.getLogger("station")
 
-VERSION = "0.4.0"
+VERSION = "0.4.0-lacf3-dev"      # this branch (lacf3-draft) is a test branch for the LACF 3.0.0-dev.1 proposal, not the stable station
 # Listen before talk, as the iGate firmware does it: the channel must be found free twice in a row (DIFS), a busy channel means a random
 # backoff of 1 to CAD_BACKOFF_MAX slots (one slot is one channel check), and after CAD_MAX_WAIT_S without a free channel the frame is given up.
 CAD_DIFS_SLOTS = 2

@@ -1,5 +1,9 @@
 # LoRa APRS Pi
 
+> **This is the `lacf3-draft` branch: a development and test branch for the LACF 3.0.0-dev.1 proposal (frame type `3C FF 03`), which is a draft, not adopted, and may still change.** It runs as the station, so installing it from here installs the draft. For the stable station use `main`. The version shows as `0.4.0-lacf3-dev` on the Status page and in `/api/status`.
+>
+> Not everything in this branch depends on the draft. Listen before talk and cancel-on-hear apply to every transmission in every format, and the neighbour table lists every station heard. The LACF 3 parts are the type 03 codec, receiving and repeating it (including a packet whose table this station does not hold), the capability bytes, and the filters for such a packet.
+
 A LoRa APRS station for a Raspberry Pi with a LoRa HAT, set up from your phone.
 
 - Receives standard LoRa APRS packets and the newer, smaller

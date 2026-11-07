@@ -485,6 +485,31 @@ class TestCapabilityNeedsASuccessfulTransmit(unittest.TestCase):
             d.cleanup()
 
 
+class TestDraftBranchIsMarked(unittest.TestCase):
+    """This branch is a test branch of an unadopted draft: the version says so, on the status page's data too."""
+
+    def test_version_says_lacf3_dev(self):
+        self.assertTrue(station.VERSION.endswith("-lacf3-dev"), station.VERSION)
+
+    def test_status_reports_it_and_the_page_shows_it(self):
+        d = tempfile.TemporaryDirectory()
+        st = Station(os.path.join(d.name, "config.json"), simulate=True)
+        st.start()
+        try:
+            self.assertEqual(st.status()["version"], station.VERSION)
+        finally:
+            st.stop()
+            d.cleanup()
+        with open(os.path.join(HERE, "..", "lora_aprs_pi", "static", "app.js")) as f:
+            self.assertIn("s.version", f.read())               # the Status page prints the version it is given
+
+    def test_readme_starts_with_the_branch_banner(self):
+        with open(os.path.join(HERE, "..", "README.md")) as f:
+            head = f.read(900)
+        self.assertIn("lacf3-draft", head)
+        self.assertIn("not adopted", head)
+
+
 class TestNeighbours(unittest.TestCase):
     CAP = {"role": 5, "model": 1, "sf": 7, "bw": 1, "cr": 0, "power": 22, "preset": 2}
 
