@@ -243,6 +243,27 @@ class TestStationRepeatsType03(unittest.TestCase):
                 break
         self.assertGreater(n, 0)
 
+    def test_same_content_with_other_path_or_rxt_is_repeated_once(self):
+        """Review finding: the dedupe key of a frame we cannot decode must be source, destination and content only."""
+        self.assertEqual(self.st.change_settings({"digi": {"mode": "wide"}}), {})      # serves the WIDE2-n left in the path
+        received = next(l[0] for l in vectors("vectors_hb3_passthrough_v1.txt") if l[0] != "-")
+        base = bytes.fromhex(received)
+        text, _ = lacf3.front(base)
+        later = lacf3.relay_to_passthrough(base, text.replace(b"WIDE1-1", b"N0OTH-1*", 1), b"N0OTH-1",
+                                           bytes([40, 40, 45, 20]))     # the same packet after another digipeater
+        self.assertIsNotNone(later)
+        for variant in (base, later, later[:-2] + bytes([later[-2] ^ 1]) + later[-1:]):
+            self.st._received(variant, -90.0, 3.0, 0)
+            time.sleep(0.1)
+        time.sleep(0.3)
+        self.assertEqual(len(self.st.radio.sent), 1)
+
+    def test_other_content_is_a_new_packet(self):
+        vecs = [bytes.fromhex(l[0]) for l in vectors("vectors_hb3_passthrough_v1.txt") if l[0] != "-"]
+        frames_ = [v for v in vecs if frames.decode(v).get("front")]
+        contents = {frames.decode(v)["content"] for v in frames_}
+        self.assertGreater(len(contents), 1)
+
     def test_frame_without_our_model_is_not_shown_gated_or_used(self):
         received = next(l[0] for l in vectors("vectors_hb3_passthrough_v1.txt") if l[0] != "-")
         self.st._received(bytes.fromhex(received), -90.0, 3.0, 0)
@@ -343,6 +364,82 @@ class TestStationBeaconsType03(unittest.TestCase):
         self.assertIsNotNone(caps[0])
         self.assertIsNone(caps[1])
         self.assertEqual(caps[2]["role"], 1)
+
+
+@unittest.skipUnless(lacf3.available(), "run 'make' first")
+class TestReviewFixes(unittest.TestCase):
+    def test_only_a_missing_model_or_code_is_relayed_unread(self):
+        """Every rejection vector is dropped, except those whose only fault is a model we do not hold."""
+        relayable = 0
+        for line in vectors("vectors_hb3_reject_v1.txt"):
+            got = frames.decode(bytes.fromhex(line[0]))
+            self.assertIsNone(got["text"])
+            if got.get("front"):
+                relayable += 1
+                self.assertIn("is not held", " ".join(line[1:]), line[1:])      # the vector's own reason
+        self.assertEqual(relayable, 3)
+
+    def test_damaged_content_is_dropped_not_relayed(self):
+        # a model-0 frame whose plain content holds a NUL byte, with a valid CRC (a reject vector)
+        line = next(l for l in vectors("vectors_hb3_reject_v1.txt") if "NUL" in " ".join(l[1:]))
+        got = frames.decode(bytes.fromhex(line[0]))
+        self.assertNotIn("front", got)
+        self.assertIn("dropped", got["error"])
+
+    def test_not_measured_rxt_is_no_report(self):
+        from lora_aprs_pi import digi
+        self.assertIsNone(digi.rxt_signal(bytes([93, 93, 45, 20])))
+        self.assertIsNone(digi.rxt_signal(bytes([60, 90, 45, 20])))
+        self.assertEqual(digi.rxt_signal(bytes([60, 40, 45, 20])), (-70, -4.0))
+
+    def test_not_measured_rxt_does_not_change_the_power(self):
+        d = tempfile.TemporaryDirectory()
+        st = Station(os.path.join(d.name, "config.json"), simulate=True)
+        st.start()
+        try:
+            self.assertEqual(st.change_settings({"station": {"callsign": "K6ATV-10"},
+                                                 "beacon": {"auto_reduce_power": True, "path": "WIDE1-1"}}), {})
+            before = st.auto_power.level
+            entry = {"source": "K6ATV-10", "path": "FAKEDG*,WIDE1-1", "info": "x", "text": "x"}
+            entry["lacf"] = {"rxt": [{"index": 0, "bytes": [93, 93, 45, 20]}]}
+            st._own_repeat(entry)
+            self.assertNotIn("digi_report", entry)
+            self.assertNotIn("power_next", entry)
+            self.assertEqual(st.auto_power.level, before)
+        finally:
+            st.stop()
+            d.cleanup()
+
+
+@unittest.skipUnless(lacf3.available(), "run 'make' first")
+class TestCapabilityNeedsASuccessfulTransmit(unittest.TestCase):
+    def test_failed_transmit_keeps_the_announcement_due(self):
+        from lora_aprs_pi.sx126x import RadioError
+        d = tempfile.TemporaryDirectory()
+        st = Station(os.path.join(d.name, "config.json"), simulate=True)
+        st.start()
+        try:
+            self.assertEqual(st.change_settings({"station": {"callsign": "K6ATV-10"}, "beacon": {
+                "enabled": True, "latitude": 37.02, "longitude": -121.6, "format": "lacf3"}}), {})
+            st.radio_dirty = False
+            end = time.time() + 5
+            while st.radio is None and time.time() < end:
+                time.sleep(0.05)
+            real = st.radio.transmit
+
+            def boom(*a, **k):
+                raise RadioError("boom")
+            st.radio.transmit = boom
+            with self.assertRaises(RadioError):
+                st._beacon(manual=True)
+            self.assertIsNone(st.cap_schedule.last_time)          # nothing was announced
+            st.radio.transmit = real
+            st._beacon(manual=True)
+            self.assertIsNotNone(lacf3.decode(st.radio.sent[0])[1]["capabilities"])
+            self.assertIsNotNone(st.cap_schedule.last_time)
+        finally:
+            st.stop()
+            d.cleanup()
 
 
 class TestNeighbours(unittest.TestCase):

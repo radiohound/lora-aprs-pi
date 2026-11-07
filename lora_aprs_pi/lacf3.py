@@ -98,8 +98,13 @@ def _need():
     return lib
 
 
-def _reason(lib, code):
-    return lib.hb3_reason(code).decode()
+ERR_FRONT, ERR_VERSION = -4, -6      # HB3_ERR_FRONT (address or path; an unassigned destination code), HB3_ERR_VERSION
+
+
+def _error(lib, code):
+    exc = LacfError(lib.hb3_reason(code).decode())
+    exc.code = code
+    return exc
 
 
 def cap_pack(role, model, sf, bw, cr, power, preset):
@@ -160,7 +165,7 @@ def decode(frame):
     with lacf._lock:
         n = lib.hb3_decode(frame, len(frame), out, len(out), ctypes.byref(info))
         if n < 0:
-            raise LacfError(_reason(lib, n))
+            raise _error(lib, n)
     return out.raw[:n], _details(info)
 
 
@@ -173,8 +178,11 @@ def front(frame):
     with lacf._lock:
         n = lib.hb3_decode_front(frame, len(frame), out, len(out), ctypes.byref(info))
         if n < 0:
-            raise LacfError(_reason(lib, n))
-    return out.raw[:n], _details(info)
+            raise _error(lib, n)
+    details = _details(info)
+    # the content field as sent (what a duplicate is judged on), without the path, the RXT block or the CRC around it
+    details["content"] = bytes(frame[info.content_start:info.content_start + info.content_len])
+    return out.raw[:n], details
 
 
 def relay_to(frame, new_tnc2, relay_call, tuple4):

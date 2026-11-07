@@ -53,7 +53,10 @@ def rxt_time_to_hop(ms, sf, bw_khz):
 
 
 def rxt_signal(tuple4):
-    """A relay's report back in dBm and dB: (RSSI, SNR)."""
+    """A relay's report back in dBm and dB: (RSSI, SNR), or None when the relay gave none: a value of 90 or more is
+    "not measured" (93) or unknown (spec 12), not a signal."""
+    if tuple4[0] >= 90 or tuple4[1] >= 90:
+        return None
     return tuple4[0] - 130, tuple4[1] * 0.5 - 24
 
 

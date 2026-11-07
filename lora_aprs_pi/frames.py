@@ -71,10 +71,14 @@ def _decode3(raw):
     try:
         text, details = lacf3.decode(raw)
     except lacf.LacfError as exc:
+        # Spec 12: only a model or a destination code this station does not hold may be relayed without being read.
+        # Anything else that fails the full decode (a payload that is not canonical, a size or content rule) is damaged.
+        if getattr(exc, "code", None) not in (lacf3.ERR_VERSION, lacf3.ERR_FRONT):
+            return {"format": "lacf3", "text": None, "error": f"dropped ({exc})", "lacf": None}
         try:
             front, details = lacf3.front(raw)
         except lacf.LacfError:
             return {"format": "lacf3", "text": None, "error": f"dropped ({exc})", "lacf": None}
         return {"format": "lacf3", "text": None, "error": f"not decoded here ({exc}); can be relayed without the model",
-                "lacf": details, "front": front}
+                "lacf": details, "front": front, "content": details.pop("content")}
     return {"format": "lacf3", "text": text, "error": None, "lacf": details}

@@ -47,6 +47,7 @@ class Station:
         self.beacon_now_flag = threading.Event()
         self.beacon_number = 0
         self.cap_schedule = capability.Schedule()
+        self._cap_pending = None
         self.smart = smartbeacon.SmartBeacon()
         self.aprs_status_due = time.time() + FIRST_BEACON_DELAY_S + STATUS_AFTER_BEACON_S
         self.last_status = None
@@ -233,7 +234,7 @@ class Station:
             if got["lacf"]:
                 entry["lacf"] = got["lacf"]
             if got.get("front"):                  # a model we do not hold: relay it, never show or use it
-                self._maybe_repeat(entry, raw, rssi, snr, freq_offset, got["front"])
+                self._maybe_repeat(entry, raw, rssi, snr, freq_offset, got["front"], got["content"])
             if got["text"]:
                 pkt = aprs.parse(got["text"])
                 if pkt:
@@ -281,11 +282,13 @@ class Station:
         if rxt:
             first = min(rxt, key=lambda t: t["index"])        # the first relay heard us directly
             if first["index"] < len(hops):
-                rssi, snr = digi.rxt_signal(first["bytes"])
+                signal = digi.rxt_signal(first["bytes"])
                 digi_call = hops[first["index"]].rstrip("*")
-                entry["digi_report"] = {"digi": digi_call, "rssi": rssi, "snr": snr}
+                rssi, snr = signal or (None, None)
+                if signal:                        # a digipeater that did not measure (93) or sent an unknown value has no report
+                    entry["digi_report"] = {"digi": digi_call, "rssi": rssi, "snr": snr}
                 rd = self.cfg["radio"]
-                if self.cfg["beacon"]["auto_reduce_power"]:
+                if signal and self.cfg["beacon"]["auto_reduce_power"]:
                     before = self.auto_power.base
                     level = self.auto_power.report(entry.get("info"), digi_call, rssi, snr, rd["sf"], rd["bw_khz"])
                     if level is not None:
@@ -309,7 +312,7 @@ class Station:
         with self.lock:
             self.counts["gated"] += 1
 
-    def _maybe_repeat(self, entry, raw, rssi, snr, freq_offset, front=None):
+    def _maybe_repeat(self, entry, raw, rssi, snr, freq_offset, front=None, content=b""):
         """Queue a repeat when the digipeater serves this packet's path. front is "SRC>DST,PATH:" of a type 03
         frame whose model we do not hold: its path is judged the same way and it is relayed without the model."""
         mode = self.cfg["digi"]["mode"]
@@ -326,7 +329,8 @@ class Station:
             if reason not in ("digipeater off", "no hops left"):
                 entry["not_repeated"] = reason
             return
-        if not self.digi_seen.is_new(text + raw.hex() if front else text):
+        # a duplicate is judged on source, destination and content (spec 12), not on the path or the RXT block
+        if not self.digi_seen.is_new(text.partition(",")[0] + ":" + content.hex() if front else text):
             entry["not_repeated"] = "already repeated in the last 30 s"
             return
         fmt = "lacf3-pass" if front else entry["format"]
@@ -439,6 +443,7 @@ class Station:
 
     def _encode_own(self, tnc2, fmt, cfg):
         """frames.encode for one of our own frames; a type 03 frame carries the capability bytes when the schedule says so."""
+        self._cap_pending = None
         if fmt != "lacf3" or not lacf3.available():
             return frames.encode(tnc2, fmt)
         cap = lacf3.cap_pack(*capability.fields(cfg))
@@ -446,8 +451,15 @@ class Station:
         with_caps = self.cap_schedule.due(cap, now)
         frame, used = frames.encode(tnc2, fmt, cap if with_caps else None)
         if used == "lacf3":
-            self.cap_schedule.sent(with_caps, cap, now)
+            self._cap_pending = (with_caps, cap, now)
         return frame, used
+
+    def _cap_sent(self):
+        """The frame from _encode_own went out: only now does it count for the capability schedule, so a failed
+        transmit does not use up an announcement."""
+        pending, self._cap_pending = self._cap_pending, None
+        if pending:
+            self.cap_schedule.sent(*pending)
 
     def _beacon(self, manual):
         with self.lock:
@@ -495,6 +507,7 @@ class Station:
             level = self.auto_power.next_level(hardware.antenna_power(hardware.CHIP_MIN_DBM, prof))
             chip = hardware.chip_power(level, prof)
         on_air = self.radio.transmit(frame, chip)
+        self._cap_sent()
         if self.events:
             self._feed("tx", self.events.tx(frame))
         if bc["auto_reduce_power"]:
@@ -534,6 +547,7 @@ class Station:
             prof, _ = config.radio_settings(cfg)
             chip = hardware.chip_power(min(self.auto_power.level, cfg["radio"]["power_dbm"]), prof)
         on_air = self.radio.transmit(frame, chip)
+        self._cap_sent()
         if self.events:
             self._feed("tx", self.events.tx(frame))
         if self.aprsis:
