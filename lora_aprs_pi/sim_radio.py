@@ -31,6 +31,8 @@ class SimRadio:
         self.sent = []
         self.sent_power = []
         self.next_rx = time.monotonic() + 3
+        self.busy_for = 0                  # the next this-many channel checks find the channel busy
+        self.cad_checks = 0
 
     def begin(self, settings):
         self.configure(settings)
@@ -60,6 +62,14 @@ class SimRadio:
             return (None, -128.0, -14.5, 0)                # an occasional CRC error
         return (frame, round(random.uniform(-125, -80), 1), round(random.uniform(-12, 9), 2),
                 random.randint(-400, 400))
+
+    def channel_busy(self):
+        """Listen before talk: the pretend channel is busy for the next `busy_for` checks (tests set it)."""
+        self.cad_checks += 1
+        if self.busy_for > 0:
+            self.busy_for -= 1
+            return True
+        return False
 
     def rssi_now(self):
         return round(random.gauss(-112, 2), 1)

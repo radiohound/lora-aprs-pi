@@ -86,12 +86,16 @@ class Dedupe:
         self.seconds = seconds
         self.seen = collections.OrderedDict()
 
+    @staticmethod
+    def key(tnc2):
+        head, _, info = tnc2.partition(":")
+        return (head.split(",")[0].upper(), info)   # SRC>DEST without the path, plus the info
+
     def is_new(self, tnc2, now=None):
         now = now if now is not None else time.monotonic()
         while self.seen and next(iter(self.seen.values())) < now - self.seconds:
             self.seen.popitem(last=False)
-        head, _, info = tnc2.partition(":")
-        key = (head.split(",")[0].upper(), info)   # SRC>DEST without the path, plus the info
+        key = self.key(tnc2)
         if key in self.seen:
             return False
         self.seen[key] = now

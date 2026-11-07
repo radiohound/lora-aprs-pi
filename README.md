@@ -212,6 +212,17 @@ Choose under Settings → Digipeater:
   RF", not "don't repeat".
 - A repeat waits a random 0.5 to 2 seconds, so digipeaters that heard the same
   packet don't all transmit at once.
+- **Listen before talk.** Every transmission (beacons, status messages and repeats) first
+  checks that the channel is free, with the radio chip's own channel activity detection, which
+  finds a LoRa signal even below the noise floor. The channel must be found free twice in a row;
+  if it is busy, the station waits a few channel-check slots and tries again, still receiving. After
+  10 seconds without a free channel a repeat is dropped, and a beacon is tried again 30 seconds
+  later. The Status counts show how often the channel was busy and how often the station gave up.
+  This keeps two digipeaters in range of each other from repeating over one another.
+- **Cancel on hear.** A repeat that is still waiting (for its random delay or for a free channel) is dropped
+  when the station hears another digipeater repeat the same packet first: the same source, destination and
+  content, with more digipeaters in the path than when it was first heard. The same goes for a LACF 3 packet
+  it cannot read. The Status counts show how many repeats were cancelled.
 - **LACF packets** are repeated as LACF by copying their content and adding this
   station's RXT tuple: signal strength, SNR, frequency offset and time to hop.
   Standard packets are repeated as standard text.

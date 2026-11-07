@@ -39,6 +39,8 @@ class FakeChip:
         self.buffer = bytearray(256)
         self.irq = 0
         self.rx = None            # (payload, rssi byte, snr byte, irq bits) to deliver
+        self.cad_detects = False  # what channel activity detection finds
+        self.cad_finishes = True
 
     def _raise(self, bits):
         self.irq |= bits
@@ -81,6 +83,9 @@ class FakeChip:
             self.buffer[data[1]:data[1] + len(data) - 2] = bytes(data[2:])
         elif op == sx.SET_TX:
             self._raise(sx.IRQ_TX_DONE)
+        elif op == sx.SET_CAD:
+            if self.cad_finishes:
+                self._raise(sx.IRQ_CAD_DONE | (sx.IRQ_CAD_DETECTED if self.cad_detects else 0))
         elif op == sx.GET_RSSI_INST:
             out[2] = 220                                 # -110 dBm
         return out
@@ -135,6 +140,59 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(sx.bw_code(62.5), 0x03)
         with self.assertRaises(sx.RadioError):
             sx.bw_code(100)
+
+
+class TestChannelActivityDetection(unittest.TestCase):
+    """Listen before talk: the chip's CAD, started and read the way the Semtech datasheet and RadioLib do it."""
+
+    def setUp(self):
+        self.radio, self.chip, self.gpio, self.prof = make_radio()
+        self.radio.begin(SETTINGS)
+        self.radio.start_rx()
+        self.chip.log.clear()
+
+    def test_free_channel(self):
+        self.assertFalse(self.radio.channel_busy())
+
+    def test_busy_channel(self):
+        self.chip.cad_detects = True
+        self.assertTrue(self.radio.channel_busy())
+
+    def test_the_parameters_are_the_recommended_ones_for_the_spreading_factor(self):
+        self.radio.channel_busy()
+        (params,) = self.chip.sent(sx.SET_CAD_PARAMS)
+        # 4 symbols, peak SF + 13, minimum 10, back to standby when done, no timeout
+        self.assertEqual(params[1:], [0x02, 12 + 13, 10, 0x00, 0, 0, 0])
+        self.assertEqual(len(self.chip.sent(sx.SET_CAD)), 1)
+        s = dict(SETTINGS, sf=7)
+        self.radio.configure(s)
+        self.chip.log.clear()
+        self.radio.channel_busy()
+        self.assertEqual(self.chip.sent(sx.SET_CAD_PARAMS)[0][2], 7 + 13)
+
+    def test_it_goes_back_to_receive(self):
+        self.radio.channel_busy()
+        ops = [d[0] for d in self.chip.log]
+        self.assertEqual(ops[-1], sx.SET_RX)
+        self.assertEqual(self.gpio.levels[self.prof["rx_en"]], 1)
+        self.assertEqual(self.gpio.levels[self.prof["tx_en"]], 0)
+
+    def test_a_packet_that_is_arriving_is_busy_without_starting_cad(self):
+        self.chip.irq = sx.IRQ_PREAMBLE
+        self.assertTrue(self.radio.channel_busy())
+        self.assertEqual(self.chip.sent(sx.SET_CAD), [])
+
+    def test_a_received_packet_not_yet_read_is_not_thrown_away(self):
+        self.chip.deliver(b"<\xff\x01N0CALL>APLRT1:>x")
+        self.assertTrue(self.radio.channel_busy())
+        self.assertEqual(self.chip.sent(sx.SET_CAD), [])
+        self.assertEqual(self.chip.sent(sx.CLEAR_IRQ_STATUS), [])        # nothing cleared, so poll() still gets it
+        self.assertIsNotNone(self.radio.poll())
+
+    def test_a_chip_that_never_finishes_is_an_error(self):
+        self.chip.cad_finishes = False
+        with self.assertRaises(sx.RadioError):
+            self.radio.channel_busy()
 
 
 class TestPower(unittest.TestCase):

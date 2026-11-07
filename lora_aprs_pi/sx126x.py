@@ -19,6 +19,8 @@ class RadioError(Exception):
 # Commands
 SET_STANDBY = 0x80
 SET_RX = 0x82
+SET_CAD = 0xC5
+SET_CAD_PARAMS = 0x88
 SET_TX = 0x83
 SET_RF_FREQUENCY = 0x86
 SET_PACKET_TYPE = 0x8A
@@ -54,6 +56,9 @@ IRQ_RX_DONE = 0x0002
 IRQ_HEADER_ERR = 0x0020
 IRQ_CRC_ERR = 0x0040
 IRQ_TIMEOUT = 0x0200
+IRQ_CAD_DONE = 0x0080
+IRQ_CAD_DETECTED = 0x0100
+IRQ_CAD = IRQ_CAD_DONE | IRQ_CAD_DETECTED
 IRQ_USED = IRQ_TX_DONE | IRQ_RX_DONE | IRQ_HEADER_ERR | IRQ_CRC_ERR | IRQ_TIMEOUT
 IRQ_PREAMBLE = 0x0004
 IRQ_HEADER_VALID = 0x0010
@@ -353,7 +358,7 @@ class SX126x:
         self._packet_params(255)
         self.write_reg(REG_SYNC_WORD, sync_word_bytes(int(s.get("sync_word", 0x12))))
         self._cmd(SET_BUFFER_BASE_ADDRESS, 0x00, 0x00)
-        flagged = IRQ_USED | IRQ_ARRIVING
+        flagged = IRQ_USED | IRQ_ARRIVING | IRQ_CAD      # the CAD flags show in the status register but are not wired to DIO1
         self._cmd(SET_DIO_IRQ_PARAMS, flagged >> 8, flagged & 0xFF,
                   IRQ_USED >> 8, IRQ_USED & 0xFF, 0, 0, 0, 0)
         self.write_reg(REG_RX_GAIN, [0x96])                # boosted RX gain
@@ -403,6 +408,34 @@ class SX126x:
         d = self._read(GET_PACKET_STATUS, 3)
         snr = d[1] - 256 if d[1] > 127 else d[1]
         return (-d[0] / 2.0, snr / 4.0)
+
+    def channel_busy(self):
+        """Channel activity detection (listen before talk): True if a LoRa signal is on the channel, False if it is free.
+        The chip looks for a LoRa preamble, which works well below the noise floor, unlike a signal-strength reading. Parameters are
+        the Semtech recommendation (datasheet DS.SX1261-2, CAD, as RadioLib uses it): 4 symbols, peak threshold SF + 13, minimum 10.
+        A packet already arriving, or received and not yet read, counts as busy. Leaves the chip in receive."""
+        s = self.settings
+        if self.irq_status() & (IRQ_ARRIVING | IRQ_RX_DONE):
+            return True
+        sf = int(s["sf"])
+        symbol_s = (1 << sf) / (float(s["bw_khz"]) * 1000.0)
+        self._cmd(SET_STANDBY, 0x00)
+        self._cmd(SET_CAD_PARAMS, 0x02, sf + 13, 10, 0x00, 0, 0, 0)    # 4 symbols, back to standby when done, no timeout
+        self.clear_irq(IRQ_CAD)
+        self._rf_switch("rx")
+        self._cmd(SET_CAD)
+        deadline = time.monotonic() + 6 * symbol_s + 0.2
+        irq = 0
+        while time.monotonic() < deadline:
+            irq = self.irq_status()
+            if irq & IRQ_CAD_DONE:
+                break
+            time.sleep(0.002)
+        self.clear_irq(IRQ_CAD)
+        self.start_rx()
+        if not irq & IRQ_CAD_DONE:
+            raise RadioError("channel activity detection did not finish")
+        return bool(irq & IRQ_CAD_DETECTED)
 
     def rssi_now(self):
         """The level on the channel right now (dBm), or None while a packet is arriving, so that

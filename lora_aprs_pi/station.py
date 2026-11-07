@@ -17,6 +17,11 @@ from .sx126x import RadioError
 log = logging.getLogger("station")
 
 VERSION = "0.4.0"
+# Listen before talk, as the iGate firmware does it: the channel must be found free twice in a row (DIFS), a busy channel means a random
+# backoff of 1 to CAD_BACKOFF_MAX slots (one slot is one channel check), and after CAD_MAX_WAIT_S without a free channel the frame is given up.
+CAD_DIFS_SLOTS = 2
+CAD_BACKOFF_MAX = 4
+CAD_MAX_WAIT_S = 10
 DIGI_DELAY_S = (0.5, 2.0)      # random wait before repeating, so digipeaters don't all key up at once
 FIRST_BEACON_DELAY_S = 60
 RADIO_RETRY_S = 15
@@ -32,7 +37,7 @@ class Station:
         self.lock = threading.RLock()
         self.heard = collections.deque(maxlen=200)
         self.next_id = 1
-        self.counts = {"rx_ok": 0, "rx_dropped": 0, "crc": 0, "tx": 0, "gated": 0, "repeated": 0}
+        self.counts = {"rx_ok": 0, "rx_dropped": 0, "crc": 0, "tx": 0, "gated": 0, "repeated": 0, "channel_busy": 0, "gave_up": 0, "cancelled": 0}
         self.noise = collections.deque(maxlen=60)     # idle-channel RSSI, once a second, for the last minute
         self.started = time.time()
 
@@ -57,6 +62,7 @@ class Station:
         self.aprsis = None                   # APRS-IS connection when the iGate is on
         self.dedupe = igate.Dedupe()
         self.neighbours = neighbours.Neighbours()
+        self._active_jobs = []              # repeats taken off the queue and being worked through (they can still be cancelled)
         self.digi_seen = igate.Dedupe()     # packets already repeated (or queued) in the last 30 s
         self.digi_jobs = []                  # repeats waiting for their moment
         state_dir = os.path.dirname(os.path.abspath(cfg_path))
@@ -214,6 +220,47 @@ class Station:
                 log.exception("radio loop error")
                 self._radio_failed(f"unexpected error: {exc}")
 
+    def _service_radio(self):
+        """Hand a received packet to the station (the loop does this once per pass; a wait for the channel must not stop listening)."""
+        got = self.radio.poll()
+        if got:
+            try:
+                self._received(*got)
+            except Exception:
+                log.exception("could not process a received packet")
+
+    def _channel_free(self, abort=None):
+        """Listen before talk (see CAD_* above): True when the channel was found free and we may transmit, False after CAD_MAX_WAIT_S
+        of finding it busy. While waiting the radio keeps receiving and what it hears is handled as usual."""
+        radio = self.radio
+        if not hasattr(radio, "channel_busy"):
+            return True
+        with self.lock:
+            rd = dict(self.cfg["radio"])
+        slot = 4 * (1 << int(rd["sf"])) / (float(rd["bw_khz"]) * 1000.0)       # one channel check lasts about 4 symbols
+        deadline = time.monotonic() + CAD_MAX_WAIT_S
+        free = 0
+        while time.monotonic() < deadline and not self._stop.is_set():
+            if abort and abort():                  # cancelled while waiting (someone else repeated it)
+                return False
+            if radio.channel_busy():
+                free = 0
+                with self.lock:
+                    self.counts["channel_busy"] += 1
+                end = time.monotonic() + slot * random.randint(1, CAD_BACKOFF_MAX)
+                while time.monotonic() < end and not self._stop.is_set():
+                    self._service_radio()
+                    if abort and abort():
+                        return False
+                    self._stop.wait(0.02)
+            else:
+                free += 1
+                if free >= CAD_DIFS_SLOTS:
+                    return True
+        with self.lock:
+            self.counts["gave_up"] += 1
+        return False
+
     def _radio_failed(self, msg):
         log.error("radio: %s", msg)
         self.radio_state = "error"
@@ -234,6 +281,8 @@ class Station:
             if got["lacf"]:
                 entry["lacf"] = got["lacf"]
             if got.get("front"):                  # a model we do not hold: relay it, never show or use it
+                front_text = got["front"].decode("latin-1")
+                self._cancel_overheard(entry, self._repeat_key_text(front_text, got["front"], got["content"]), front_text)
                 self._maybe_repeat(entry, raw, rssi, snr, freq_offset, got["front"], got["content"])
             if got["text"]:
                 pkt = aprs.parse(got["text"])
@@ -243,6 +292,7 @@ class Station:
                     self._own_repeat(entry)
                 self._note_neighbour(got, rssi, snr)
                 self._gate(entry)
+                self._cancel_overheard(entry, entry["text"], entry["text"])
                 self._maybe_repeat(entry, raw, rssi, snr, freq_offset)
         with self.lock:
             self.counts["rx_ok" if entry.get("text") else "rx_dropped"] += 1
@@ -335,15 +385,41 @@ class Station:
                 entry["not_repeated"] = reason
             return
         # a duplicate is judged on source, destination and content (spec 12), not on the path or the RXT block
-        if not self.digi_seen.is_new(text.partition(",")[0] + ":" + content.hex() if front else text):
+        key_text = self._repeat_key_text(text, front, content)
+        if not self.digi_seen.is_new(key_text):
             entry["not_repeated"] = "already repeated in the last 30 s"
             return
         fmt = "lacf3-pass" if front else entry["format"]
         self.digi_jobs.append({
             "due": time.monotonic() + random.uniform(*DIGI_DELAY_S), "heard": time.monotonic(),
             "format": fmt, "raw": raw, "tnc2": new_tnc2, "source": entry.get("source") or text.split(">")[0],
-            "rssi": rssi, "snr": snr, "freq_offset": freq_offset})
+            "rssi": rssi, "snr": snr, "freq_offset": freq_offset,
+            "key": igate.Dedupe.key(key_text), "used": self._used_hops(text), "cancelled": False})
         entry["repeating"] = True
+
+    @staticmethod
+    def _repeat_key_text(text, front, content):
+        """What identifies a packet for repeating: for one we cannot read, its source, destination and content field."""
+        return text.partition(",")[0] + ":" + content.hex() if front else text
+
+    @staticmethod
+    def _used_hops(text):
+        """How many digipeaters have already used the path of this packet (elements marked with *)."""
+        route = text.partition(":")[0].partition(">")[2]
+        return sum(1 for h in route.split(",")[1:] if h.endswith("*"))
+
+    def _cancel_overheard(self, entry, key_text, text):
+        """Cancel-on-hear: a packet we are about to repeat (or are waiting for the channel to repeat) was just heard repeated by another
+        digipeater, so ours would only be a copy of a copy on top of theirs. Same packet, more digipeaters in the path than when we heard it."""
+        key, used = igate.Dedupe.key(key_text), self._used_hops(text)
+        for job in list(self.digi_jobs) + list(self._active_jobs):
+            if job["cancelled"] or job["key"] != key or used <= job["used"]:
+                continue
+            job["cancelled"] = True
+            entry["cancelled_repeat"] = True
+            with self.lock:
+                self.counts["cancelled"] += 1
+            log.info("repeat cancelled, %s was heard repeated by another station first", job["source"])
 
     def _run_digi_jobs(self):
         now = time.monotonic()
@@ -351,8 +427,13 @@ class Station:
         if not due:
             return
         self.digi_jobs = [j for j in self.digi_jobs if j["due"] > now]
-        for job in due:
-            self._repeat(job)
+        self._active_jobs = due
+        try:
+            for job in due:
+                if not job["cancelled"]:
+                    self._repeat(job)
+        finally:
+            self._active_jobs = []
 
     def _repeat(self, job):
         """Send one repeat. The RXT tuple is filled in now, as spec 11 asks: its time to hop
@@ -366,6 +447,12 @@ class Station:
             tth_ms = (time.monotonic() - job["heard"] + on_air) * 1000
             return digi.rxt_tuple(job["rssi"], job["snr"], job["freq_offset"], tth_ms, rd["sf"], rd["bw_khz"])
 
+        if not self._channel_free(lambda: job["cancelled"]):       # before the frame is built: the time to hop then includes the wait
+            if not job["cancelled"]:
+                log.info("not repeated (channel busy for %d s): %s", CAD_MAX_WAIT_S, job["tnc2"])
+            return
+        if job["cancelled"]:
+            return
         frame = digi.build_frame(job["raw"], job["format"], job["tnc2"], call, tuple_for(len(job["raw"]) + 13))
         if frame and job["format"] != "standard":
             frame = digi.build_frame(job["raw"], job["format"], job["tnc2"], call, tuple_for(len(frame)))
@@ -503,6 +590,11 @@ class Station:
         except ValueError as exc:
             self.beacon_note = f"Beacon not sent: {exc}"
             return
+        if not self._channel_free():
+            self.beacon_note = "Channel busy: the beacon will be tried again in 30 seconds"
+            self.beacon_due = time.time() + 30
+            log.info("beacon not sent: channel busy for %d s", CAD_MAX_WAIT_S)
+            return
         info = tnc2.decode().partition(":")[2]
         chip = None
         level = None
@@ -546,6 +638,10 @@ class Station:
             frame, used = self._encode_own(tnc2, fmt, cfg)
         except ValueError as exc:
             log.warning("status not sent: %s", exc)
+            return
+        if not self._channel_free():
+            self.aprs_status_due = time.time() + 60
+            log.info("status not sent: channel busy for %d s", CAD_MAX_WAIT_S)
             return
         chip = None
         if bc["auto_reduce_power"]:                  # no louder than the beacons are now
