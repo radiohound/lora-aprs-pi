@@ -324,6 +324,11 @@ class Station:
         text = front.decode("latin-1") if front else entry["text"]
         if not text:
             return
+        if front:                                  # unread content is repeated no more freely than the iGate firmware would repeat it
+            why = digi.unread_refused(text)
+            if why:
+                entry["not_repeated"] = why
+                return
         new_tnc2, reason = digi.decide(text, call, mode)
         if new_tnc2 is None:
             if reason not in ("digipeater off", "no hops left"):

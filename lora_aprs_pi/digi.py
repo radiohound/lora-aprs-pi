@@ -103,6 +103,47 @@ def new_path(path, mycall, mode):
     return ",".join(out), None
 
 
+def callsign_valid(call):
+    """The iGate firmware's callsign test (LoRa APRS iGate, Utils::callsignIsValid), the same rules."""
+    if call == "WLNK-1":
+        return True
+    total = len(call)
+    if total < 4:
+        return False
+    hyphen = call.find("-")
+    base = hyphen if hyphen > 0 else total
+    if hyphen > 0:                                       # SSID: one or two digits, not starting with 0
+        if hyphen < 4:
+            return False
+        ssid = call[hyphen + 1:]
+        if not ssid or len(ssid) > 2 or "-" in ssid or (len(ssid) == 2 and ssid[0] == "0") or not all(c in "0123456789" for c in ssid):
+            return False
+    if base < 4 or base > 6:
+        return False
+    alpha = lambda c: ("A" <= c <= "Z") or ("a" <= c <= "z")
+    digit = lambda c: "0" <= c <= "9"
+    padded = base == 4 and alpha(call[0]) and digit(call[1]) and alpha(call[2]) and alpha(call[3])     # A0AA is read as _A0AA
+    c0, c1, c2, c3 = (" ", call[0], call[1], call[2]) if padded else (call[0], call[1], call[2], call[3])
+    if not digit(c2) or not alpha(c3):
+        if c0 != "R" and not digit(c1) and not alpha(c2):
+            return False
+    ok = ((alpha(c0) or digit(c0) or c0 == " ") and alpha(c1)) or (alpha(c0) and digit(c1)) or \
+         (c0 == "R" and base == 6 and digit(c1) and alpha(c2) and alpha(c3) and alpha(call[4]))
+    return bool(ok) and all(alpha(c) for c in call[4:base])
+
+
+def unread_refused(front):
+    """Why a frame we cannot read (its front is "SRC>DST,PATH:") must not be relayed, as the iGate's digipeater would not
+    repeat it either: NOGATE in the path, or a sender that is not a valid callsign. None if it may be relayed."""
+    head = front.split(":", 1)[0]
+    source = head.partition(">")[0]
+    if "NOGATE" in head.upper():
+        return "NOGATE in the path"
+    if not callsign_valid(source):
+        return "sender is not a valid callsign"
+    return None
+
+
 def decide(tnc2, mycall, mode):
     """For a received TNC2 packet: (packet to send, None) or (None, reason)."""
     head, sep, info = tnc2.partition(":")

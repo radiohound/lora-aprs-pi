@@ -264,6 +264,40 @@ class TestStationRepeatsType03(unittest.TestCase):
         contents = {frames.decode(v)["content"] for v in frames_}
         self.assertGreater(len(contents), 1)
 
+    def test_unread_frame_is_held_to_the_igate_rules(self):
+        """A frame we cannot read is not repeated with NOGATE in its path or from a sender that is not a valid callsign."""
+        from lora_aprs_pi import digi
+        self.assertIsNone(digi.unread_refused("K6ATV-10>APLRT1,WIDE1-1:"))
+        self.assertIsNone(digi.unread_refused("A0AA-5>APLRT1,WIDE1-1:"))
+        self.assertEqual(digi.unread_refused("K6ATV-10>APLRT1,NOGATE,WIDE1-1:"), "NOGATE in the path")
+        self.assertEqual(digi.unread_refused("K6ATV-10>APLRT1,WIDE1-1,nogate:"), "NOGATE in the path")
+        for bad in ("ABC", "K6ATV-01", "K6ATV-100", "TOOLONGCALL", "", "K6ATV--1", "K6ATV-"):
+            self.assertEqual(digi.unread_refused(bad + ">APLRT1,WIDE1-1:"), "sender is not a valid callsign", bad)
+        # through the station: a model-less frame from an invalid sender is neither repeated nor marked repeating
+        received = next(l[0] for l in vectors("vectors_hb3_passthrough_v1.txt") if l[0] != "-")
+        raw = bytearray(bytes.fromhex(received))
+        front, _ = lacf3.front(bytes(raw))
+        self.assertIsNone(digi.unread_refused(front.decode()))         # the vector's own sender (K0TEST-7) passes
+        self.st._received(bytes(raw), -90.0, 3.0, 0)
+        self.assertEqual(len(self.wait_sent()), 1)
+
+    def test_unread_frame_with_nogate_is_not_repeated(self):
+        from lora_aprs_pi import digi
+        self.assertEqual(self.st.change_settings({"digi": {"mode": "wide"}}), {})
+        received = next(l[0] for l in vectors("vectors_hb3_passthrough_v1.txt") if l[0] != "-")
+        base = bytes.fromhex(received)
+        text, _ = lacf3.front(base)
+        src_dst = text.split(b",", 1)[0]
+        nogate = lacf3.relay_to_passthrough(base, src_dst + b",N0OTH-1*,WIDE2-1,NOGATE:", b"N0OTH-1", bytes([40, 40, 45, 20]))
+        self.assertIsNotNone(nogate)
+        front, _ = lacf3.front(nogate)
+        self.assertIsNone(digi.decide(front.decode(), self.CALL, "wide")[1])      # the path rule alone would repeat it
+        self.st._received(nogate, -90.0, 3.0, 0)
+        time.sleep(0.4)
+        self.assertEqual(self.st.radio.sent, [])
+        e = [x for x in self.st.heard_since(0) if x["dir"] == "rx"][-1]
+        self.assertEqual(e["not_repeated"], "NOGATE in the path")
+
     def test_frame_without_our_model_is_not_shown_gated_or_used(self):
         received = next(l[0] for l in vectors("vectors_hb3_passthrough_v1.txt") if l[0] != "-")
         self.st._received(bytes.fromhex(received), -90.0, 3.0, 0)
