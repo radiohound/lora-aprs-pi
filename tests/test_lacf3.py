@@ -165,6 +165,15 @@ class TestStationNeighbours(unittest.TestCase):
         self.st.stop()
         self.dir.cleanup()
 
+    def test_a_direct_frame_then_its_repeat_stays_direct(self):
+        """What the hill showed on 7 Nov: the T-Deck heard directly, then the iGate's repeat of the same frame."""
+        received, relayed, _ = next(vectors("vectors_hb3_relay_v1.txt"))
+        self.st._received(bytes.fromhex(received), -25.0, 5.5, 0)
+        self.st._received(bytes.fromhex(relayed), -31.0, 6.0, 0)
+        (n,) = self.st.status()["neighbours"]
+        self.assertTrue(n["direct"])
+        self.assertEqual((n["rssi"], n["snr"]), (-25.0, 5.5))
+
     def test_capability_frame_lands_in_the_neighbour_table(self):
         frame, tnc2, capb = next(vectors("vectors_hb3_cap_v1.txt"))
         self.st._received(bytes.fromhex(frame), -90.0, 3.0, 0)
@@ -479,18 +488,42 @@ class TestCapabilityNeedsASuccessfulTransmit(unittest.TestCase):
 class TestNeighbours(unittest.TestCase):
     CAP = {"role": 5, "model": 1, "sf": 7, "bw": 1, "cr": 0, "power": 22, "preset": 2}
 
-    def test_direct_then_via_relay_keeps_capabilities(self):
+    def test_a_later_relayed_frame_does_not_make_a_direct_station_relayed(self):
         n = neighbours.Neighbours()
         n.heard("k6atv-14", True, -50, 10.0, self.CAP, now=1000)
-        n.heard("K6ATV-14", False, -80, 2.0, now=1100)
+        n.heard("K6ATV-14", False, -80, 2.0, now=1100)             # the same station through a relay: the relay's signal
         (e,) = n.table(now=1200)
         self.assertEqual(e["call"], "K6ATV-14")
-        self.assertFalse(e["direct"])
+        self.assertTrue(e["direct"])
+        self.assertEqual((e["rssi"], e["snr"]), (-50, 10.0))      # its own, not the relay's
+        self.assertEqual(e["last"], 1100)
+        self.assertTrue(e["cap_direct"])
         self.assertEqual(e["capabilities"]["role"], "iGate and digipeater")
         self.assertEqual(e["capabilities"]["sf"], 12)
         self.assertEqual(e["capabilities"]["bw_khz"], 125)
         self.assertEqual(e["capabilities"]["newest_model"], 0)
         self.assertEqual(e["capabilities"]["power_dbm"], 22)
+
+    def test_only_heard_through_a_relay(self):
+        n = neighbours.Neighbours()
+        n.heard("K6ATV-4", False, -31, 6.0, self.CAP, now=10)
+        (e,) = n.table(now=20)
+        self.assertFalse(e["direct"])
+        self.assertEqual((e["rssi"], e["snr"]), (None, None))     # the relay's signal is not the station's
+        self.assertFalse(e["cap_direct"])
+        n.heard("K6ATV-4", True, -25, 5.5, now=30)
+        (e,) = n.table(now=40)
+        self.assertTrue(e["direct"])
+        self.assertEqual((e["rssi"], e["snr"]), (-25, 5.5))
+        self.assertFalse(e["cap_direct"])                        # the capability bytes themselves came through a relay
+
+    def test_direct_expires_but_the_station_stays(self):
+        n = neighbours.Neighbours()
+        n.heard("A1BCD", True, -50, 10.0, now=0)
+        self.assertTrue(n.table(now=neighbours.DIRECT_S)[0]["direct"])
+        e = n.table(now=neighbours.DIRECT_S + 1)[0]
+        self.assertFalse(e["direct"])
+        self.assertEqual(e["rssi"], -50)                         # the last direct signal is kept
 
     def test_expires_after_24_hours(self):
         n = neighbours.Neighbours()

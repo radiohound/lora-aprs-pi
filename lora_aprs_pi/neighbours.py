@@ -10,6 +10,7 @@ import time
 
 MAX = 24
 EXPIRY_S = 24 * 3600
+DIRECT_S = 2 * 3600                  # a station heard directly this recently is "direct"
 ROLES = ["transmit only", "listens", "digipeater", "digipeater late", "iGate",
          "iGate and digipeater", "iGate and digipeater late", "reserved"]
 BW_KHZ = [62.5, 125, 250, 500]      # capability BW code, spec 12
@@ -31,6 +32,10 @@ def describe(cap):
 
 
 class Neighbours:
+    """direct means a frame came straight from the station within DIRECT_S. A frame heard through a relay keeps the
+    time it was heard but never replaces that, and carries the relay's signal, not the station's, so it is not stored
+    as the station's signal."""
+
     def __init__(self):
         self._lock = threading.Lock()
         self._by_call = {}
@@ -46,19 +51,27 @@ class Neighbours:
                 if len(self._by_call) >= MAX:
                     oldest = min(self._by_call, key=lambda c: self._by_call[c]["last"])
                     del self._by_call[oldest]
-                e = self._by_call[call] = {"call": call, "capabilities": None, "cap_time": None}
-            e.update(last=now, direct=direct, rssi=rssi, snr=snr)
+                e = self._by_call[call] = {"call": call, "capabilities": None, "cap_time": None, "cap_direct": None,
+                                           "direct_time": None, "rssi": None, "snr": None}
+            e["last"] = now
+            if direct:
+                e.update(direct_time=now, rssi=rssi, snr=snr)
             if capabilities is not None:
-                e["capabilities"] = describe(capabilities)
-                e["cap_time"] = now
+                e.update(capabilities=describe(capabilities), cap_time=now, cap_direct=bool(direct))
 
     def _expire(self, now):
         for c in [c for c, e in self._by_call.items() if now - e["last"] > EXPIRY_S]:
             del self._by_call[c]
 
     def table(self, now=None):
-        """Newest first."""
+        """Newest first. direct is True when the station was heard directly within DIRECT_S; rssi and snr are those of
+        its latest direct frame (None if it has only been heard through relays)."""
         now = time.time() if now is None else now
         with self._lock:
             self._expire(now)
-            return sorted((dict(e) for e in self._by_call.values()), key=lambda e: -e["last"])
+            rows = []
+            for e in self._by_call.values():
+                row = dict(e)
+                row["direct"] = e["direct_time"] is not None and now - e["direct_time"] <= DIRECT_S
+                rows.append(row)
+            return sorted(rows, key=lambda r: -r["last"])
