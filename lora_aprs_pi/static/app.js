@@ -241,6 +241,7 @@ function heardItem(e) {
   if (e.own_repeat) l1.append(el("span", "tag gated", e.repeated_by ? `Your beacon, via ${e.repeated_by}` : "Your beacon"));
   if (e.gated) l1.append(el("span", "tag gated", "Gated"));
   if (e.format === "lacf") l1.append(el("span", "tag lacf", "Experimental LACF"));
+  else if (e.format === "lacf3") l1.append(el("span", "tag lacf", "Experimental LACF 3"));
   else if (e.format === "standard") l1.append(el("span", "tag", "Standard"));
   l1.append(el("span", "when", ago(e.time)));
   li.append(l1);

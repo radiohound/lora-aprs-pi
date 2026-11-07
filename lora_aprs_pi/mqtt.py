@@ -54,6 +54,8 @@ def classify(raw):
             return "ppm_primed"
         if raw[2] == 0x02:
             return "hybrid" if len(raw) >= 4 and (raw[3] & 3) >= 2 else "native"
+        if raw[2] == 0x03:
+            return "hybrid"
     return "unknown"
 
 

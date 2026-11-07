@@ -9,7 +9,7 @@ import random
 import threading
 import time
 
-from . import aprs, config, digi, frames, hardware, igate, lacf, mqtt, power, smartbeacon
+from . import aprs, config, digi, frames, hardware, igate, lacf, lacf3, mqtt, neighbours, power, smartbeacon
 from .sx126x import airtime_s
 from .gps import Gps
 from .sx126x import RadioError
@@ -54,6 +54,7 @@ class Station:
 
         self.aprsis = None                   # APRS-IS connection when the iGate is on
         self.dedupe = igate.Dedupe()
+        self.neighbours = neighbours.Neighbours()
         self.digi_seen = igate.Dedupe()     # packets already repeated (or queued) in the last 30 s
         self.digi_jobs = []                  # repeats waiting for their moment
         state_dir = os.path.dirname(os.path.abspath(cfg_path))
@@ -230,12 +231,15 @@ class Station:
                          text=got["text"].decode("utf-8", "replace") if got["text"] else None)
             if got["lacf"]:
                 entry["lacf"] = got["lacf"]
+            if got.get("front"):                  # a model we do not hold: relay it, never show or use it
+                self._maybe_repeat(entry, raw, rssi, snr, freq_offset, got["front"])
             if got["text"]:
                 pkt = aprs.parse(got["text"])
                 if pkt:
                     entry.update(pkt)
                     self._add_distance(entry)
                     self._own_repeat(entry)
+                self._note_neighbour(got, rssi, snr)
                 self._gate(entry)
                 self._maybe_repeat(entry, raw, rssi, snr, freq_offset)
         with self.lock:
@@ -248,6 +252,19 @@ class Station:
             self._feed("rx", events.rx(raw, rssi, snr, freq_offset, text))
         self._remember(entry)
         log.info("RX %s %s (RSSI %.0f, SNR %.1f)", entry["format"], entry.get("text") or entry["error"], rssi, snr)
+
+    def _note_neighbour(self, got, rssi, snr):
+        """Keep the neighbour table from the header of a decoded frame (it does not need the packet to parse
+        as a position or message): a type 03 frame may carry capabilities. A frame is direct when no
+        digipeater has used its path yet."""
+        head = got["text"].split(b":", 1)[0].decode("latin-1")
+        source, _, route = head.partition(">")
+        if not source or source.upper() == self.cfg["station"]["callsign"]:
+            return
+        hops = route.split(",")[1:]
+        direct = not any(h.endswith("*") for h in hops)
+        caps = (got["lacf"] or {}).get("capabilities")
+        self.neighbours.heard(source, direct, rssi, snr, caps)
 
     def _own_repeat(self, entry):
         """Our own packet coming back from a digipeater: note who repeated it and, for LACF,
@@ -291,25 +308,30 @@ class Station:
         with self.lock:
             self.counts["gated"] += 1
 
-    def _maybe_repeat(self, entry, raw, rssi, snr, freq_offset):
-        """Queue a repeat when the digipeater serves this packet's path."""
+    def _maybe_repeat(self, entry, raw, rssi, snr, freq_offset, front=None):
+        """Queue a repeat when the digipeater serves this packet's path. front is "SRC>DST,PATH:" of a type 03
+        frame whose model we do not hold: its path is judged the same way and it is relayed without the model."""
         mode = self.cfg["digi"]["mode"]
-        if mode == "off" or entry.get("format") not in ("standard", "lacf"):
+        if mode == "off" or entry.get("format") not in ("standard", "lacf", "lacf3"):
             return
         call = self.cfg["station"]["callsign"]
         if call == "N0CALL":
             return
-        new_tnc2, reason = digi.decide(entry["text"], call, mode)
+        text = front.decode("latin-1") if front else entry["text"]
+        if not text:
+            return
+        new_tnc2, reason = digi.decide(text, call, mode)
         if new_tnc2 is None:
             if reason not in ("digipeater off", "no hops left"):
                 entry["not_repeated"] = reason
             return
-        if not self.digi_seen.is_new(entry["text"]):
+        if not self.digi_seen.is_new(text + raw.hex() if front else text):
             entry["not_repeated"] = "already repeated in the last 30 s"
             return
+        fmt = "lacf3-pass" if front else entry["format"]
         self.digi_jobs.append({
             "due": time.monotonic() + random.uniform(*DIGI_DELAY_S), "heard": time.monotonic(),
-            "format": entry["format"], "raw": raw, "tnc2": new_tnc2, "source": entry.get("source"),
+            "format": fmt, "raw": raw, "tnc2": new_tnc2, "source": entry.get("source") or text.split(">")[0],
             "rssi": rssi, "snr": snr, "freq_offset": freq_offset})
         entry["repeating"] = True
 
@@ -335,8 +357,8 @@ class Station:
             return digi.rxt_tuple(job["rssi"], job["snr"], job["freq_offset"], tth_ms, rd["sf"], rd["bw_khz"])
 
         frame = digi.build_frame(job["raw"], job["format"], job["tnc2"], call, tuple_for(len(job["raw"]) + 13))
-        if frame and job["format"] == "lacf":
-            frame = digi.build_frame(job["raw"], "lacf", job["tnc2"], call, tuple_for(len(frame)))
+        if frame and job["format"] != "standard":
+            frame = digi.build_frame(job["raw"], job["format"], job["tnc2"], call, tuple_for(len(frame)))
         if not frame:
             log.info("not repeated (frame too long or not relayable): %s", job["tnc2"])
             return
@@ -345,7 +367,8 @@ class Station:
             self._feed("tx", self.events.tx(frame))
         with self.lock:
             self.counts["repeated"] += 1
-        self._remember({"dir": "tx", "kind": "repeat", "format": job["format"], "bytes": len(frame),
+        self._remember({"dir": "tx", "kind": "repeat", "format": job["format"].replace("-pass", ""),
+                        "without_model": job["format"].endswith("-pass"), "bytes": len(frame),
                         "text": job["tnc2"], "error": None, "source": job["source"],
                         "airtime_ms": round(on_air * 1000)})
         log.info("REPEAT %s %d bytes: %s", job["format"], len(frame), job["tnc2"])
@@ -612,7 +635,9 @@ class Station:
                     "max_antenna_dbm": hardware.antenna_power(prof["max_chip_dbm"], prof),
                     "noise": self._noise_summary(),
                 },
-                "lacf": {"available": lacf.available(), "error": lacf.load_error()},
+                "lacf": {"available": lacf.available(), "error": lacf.load_error(),
+                         "type03": lacf3.available()},
+                "neighbours": self.neighbours.table(),
                 "gps": gps,
                 "beacon": {
                     "enabled": cfg["beacon"]["enabled"], "format": cfg["beacon"]["format"],

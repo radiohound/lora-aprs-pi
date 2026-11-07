@@ -20,7 +20,7 @@ standard frames are repeated as standard text.
 import math
 import re
 
-from . import lacf
+from . import lacf, lacf3
 
 MODES = ("off", "fill-in", "wide")
 MAX_HOPS = 8
@@ -116,8 +116,13 @@ def decide(tnc2, mycall, mode):
 
 
 def build_frame(received_frame, fmt, new_tnc2, mycall, tuple4):
-    """The frame to transmit: a standard frame as text, an LACF frame relayed per spec 11."""
+    """The frame to transmit: a standard frame as text, an LACF frame relayed per spec 11 (type 02), spec 12
+    (type 03, lacf3) or, for a type 03 frame whose model we do not hold, relayed without the model (lacf3-pass)."""
     if fmt == "lacf":
         return lacf.relay_to(received_frame, new_tnc2.encode(), mycall.encode(), tuple4)
+    if fmt == "lacf3":
+        return lacf3.relay_to(received_frame, new_tnc2.encode(), mycall.encode(), tuple4)
+    if fmt == "lacf3-pass":
+        return lacf3.relay_to_passthrough(received_frame, new_tnc2.encode(), mycall.encode(), tuple4)
     frame = b"<\xff\x01" + new_tnc2.encode()
     return frame if len(frame) <= 255 else None
