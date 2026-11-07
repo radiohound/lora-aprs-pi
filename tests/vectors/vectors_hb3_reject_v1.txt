@@ -1,0 +1,50 @@
+# Spec 12 rejection vectors (3.0.0-dev.1): <frame hex> <why it must be dropped>. Every receiver must drop each line.
+3cff033b874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa32142d0a33152e0b03 mask has no marker bit (bit 7 clear)
+3cff033b874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa32142d0a33152e0bc3 mask bit 6 set but the path has fewer elements
+3cff033b874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa32142d0a33152e0b80 mask with no tuple bit (k = 0)
+3cff033b874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa33152e0b83 mask names 2 tuples but only one is present
+3cff033b874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa32142d0a33152e0b tuples without a mask byte
+3cff033b874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa32142d0a80152e0b83 RSSI byte 0x80 is 0x80 or more (it would look like a mask marker)
+3cff033b874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa32142d0a33812e0b83 SNR byte 0x81 is 0x80 or more (it would look like a mask marker)
+3cff033b874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa32142d0a3315c80b83 frequency offset byte 0xC8 is 0x80 or more (it would look like a mask marker)
+3cff033b874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa32142d0a33152eff83 time to hop byte 0xFF is 0x80 or more (it would look like a mask marker)
+3cff0333874755da4c3aa159a392e8a259a392e8111003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa32142d0a33152e0b83 RXT bit cleared but the block is still there
+3cff032b874755da4c3aa159a392e8121003ef9998938a5c6b04d0580043492b8bb3efb93ded6dd7e191f0ea2de72e8b4775915a30c4735cd6a3aa RXT bit set but no block
+3cff0327895994a62c0009120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b header bit 2 set (reserved)
+3cff0320895994a62c0009120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b LACF content with the kind changed to 0 (plain): the payload is not text, the CRC fails
+3cff0321895994a62c0009120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b LACF content with the kind changed to 1 (plain with a position block): the payload is not text, the CRC fails
+3cff0322895994a62c0009120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b kind 2 on a frame with a position block: the position block is read as content, the CRC fails
+3cff0323895994a62c7e09120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b destination code 126 (reserved)
+3cff0323895994a62cfe09120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b destination code 126 with the reserved bit c set
+3cff0323895994a62c6409120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b destination code 100 is not assigned in the list (the receiver cannot read it)
+3cff0323895994a62c0009120001b5f81655eb2f3e181b746093af550a8e18e207495b model 24 is not held (correct CRC)
+3cff0323895994a62c0009120001b5f81655eb2f3e011b8bbc93af550a8e18e207495b model 1 is not held (correct CRC)
+3cff0323895994a62c0009120001b5f81655eb2f3e1f1b9dd793af550a8e18e207495b model 31 is not held (correct CRC)
+3cff0323895994a62c0009120001b5f81655eb2f3e011bc3ee93af550a8e18e207495b V changed without recomputing the CRC: the CRC fails
+3cff0323895994a62c0009120001b5f81655eb2f3e801bc3ee93af550a8e18e207495b capability flag set on a frame that has no capability bytes: the next four bytes are read as capability bytes and the CRC fails
+3cff0300805994a62c0080010203 capability flag set and fewer than four bytes after V
+3cff0323895994a62c0009120001b5f81655eb2f3e001bc3ee92af550a8e18e207495b a position block byte damaged: the CRC covers the bytes as sent
+3cff0323895994a62c4009120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b destination byte changed (code 64): the CRC covers the destination byte
+3cff0323895994a62c0009120001b5f81655eb2f3e001bc3ee93af550a8e08e207495b a payload byte damaged: the CRC covers the payload as sent
+3cff0323895994a62c0009120001b5f81655eb2f3e0000c3ee93af550a8e18e207495b PPM content with L = 0
+3cff0323895994a62c0009128001b5f81655eb2f3e001bc3ee93af550a8e18e207495b position flags bit 7 set
+3cff0323895994a62c0009121801b5f81655eb2f3e001bc3ee93af550a8e18e207495b position flags: course/speed together with compressed
+3cff0323895994a62c0009124001b5f81655eb2f3e001bc3ee93af550a8e18e207495b position flags: compressed-cs bit without compressed
+3cff0323895994a62c0001120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b path element WIDE with n = 0
+3cff0323895994a62c000a120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b path element WIDE with N above n
+3cff0323895994a62c00828dc51ba0120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b path element WIDE1-2 (N above n) written as a callsign element: not compliant, dropped
+3cff0323895994a62c00a38dc51bc8120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b path element WIDE2-3* (N above n) written as a callsign element: not compliant, dropped
+3cff0323895994a62c00c757494445312d30120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b path element WIDE1-0 written as a text element: not compliant, dropped
+3cff0323ffffffff2c0009120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b source element value above 40^6 (no callsign)
+3cff03239f5994a62c050009120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b SSID extra byte below 31
+3cff032389000000000009120001b5f81655eb2f3e001bc3ee93af550a8e18e207495b callsign element of six spaces (empty)
+3cff0200805994a62c00004ae26869007468657265 NUL byte in plain text (valid CRC)
+3cff0300805994a62c000094d63e79 plain content with one text bit flipped (CRC fails)
+3cff0300805994a62c000094d63e plain content cut by one byte (CRC fails)
+3cff0300805994a62c000094293e78 plain content with a wrong CRC byte
+3cff0300c3413a42000082bc6869 source text element holds ':' (the decoded packet would split at the wrong colon)
+3cff0300805994a62c7fc3412c4200a1bf6869 destination text element holds ','
+3cff0310805994a62c00c3413e4200bb506869 path text element holds '>'
+3cff0300805994a62c7fc341004200c6a76869 destination text element holds a NUL byte
+3cff0302c3413a4200002eadc4d4ae34bca027406c22b9d79deb2d4bc7f44e6169028395f8e353c6bd091f05c4d9836d11a86326ebf2ca PPM frame whose source text element holds ':' (what an encoder that accepts such a source would send)
+3cff0302805994a62c000031ab5e8646e0bc1ee9ad1d4a50e4b46ee93af3ebbf80aca4c10a5f48a0b1e6a28e1be8242f0aa92ff0e38001a771e94c PPM text holds a NUL byte (valid CRC over the bytes as sent)

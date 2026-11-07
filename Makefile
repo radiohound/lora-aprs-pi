@@ -6,8 +6,8 @@
 CC     ?= gcc
 CFLAGS ?= -O2 -fPIC
 
-LACF_SRC = lacf/hb.c lacf/hbi.c lacf/hbc.c
-LACF_DEP = $(LACF_SRC) lacf/hb.h lacf/hb_payload.h lacf/aprs_ppm.c lacf/aprs_ppm.h \
+LACF_SRC = lacf/hb.c lacf/hb3.c lacf/hbi.c lacf/hbc.c
+LACF_DEP = $(LACF_SRC) lacf/hb.h lacf/hb3.h lacf/hb_payload.h lacf/aprs_ppm.c lacf/aprs_ppm.h \
            lacf/aprs_ppm_model.h lacf/model_hybridB_info_native.c lacf/model_hybridB_comment.c
 
 all: lacf/liblacf.so
