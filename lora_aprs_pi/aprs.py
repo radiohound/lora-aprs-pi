@@ -18,13 +18,17 @@ def _degmin(value, width, pos, neg):
     return f"{deg:0{width}d}{rem // 100:02d}.{rem % 100:02d}{hemi}"
 
 
-def position_info(lat, lon, symbol, comment="", altitude_ft=None):
+def position_info(lat, lon, symbol, comment="", altitude_ft=None, course=None, speed_kn=None):
     """Plain (uncompressed) position report, no timestamp, no messaging.
 
     Uncompressed is used on purpose: LACF carries it in its lossless native
     position block, and every LoRa APRS receiver can read it.
     """
-    info = f"!{_degmin(lat, 2, 'N', 'S')}{symbol[0]}{_degmin(lon, 3, 'E', 'W')}{symbol[1]}{comment}"
+    ext = ""
+    if course is not None and speed_kn is not None:      # CSE/SPD: course 001-360 (360 = north), knots
+        cse = int(round(course)) % 360 or 360
+        ext = f"{cse:03d}/{min(999, int(round(speed_kn))):03d}"
+    info = f"!{_degmin(lat, 2, 'N', 'S')}{symbol[0]}{_degmin(lon, 3, 'E', 'W')}{symbol[1]}{ext}{comment}"
     if altitude_ft is not None:
         alt = max(-99999, min(999999, int(round(altitude_ft))))
         info += f" /A={alt:06d}" if alt >= 0 else f" /A=-{-alt:05d}"

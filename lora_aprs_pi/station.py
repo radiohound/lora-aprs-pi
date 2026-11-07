@@ -9,7 +9,7 @@ import random
 import threading
 import time
 
-from . import aprs, config, digi, frames, hardware, igate, lacf, mqtt, power
+from . import aprs, config, digi, frames, hardware, igate, lacf, mqtt, power, smartbeacon
 from .sx126x import airtime_s
 from .gps import Gps
 from .sx126x import RadioError
@@ -46,6 +46,7 @@ class Station:
         self.beacon_due = time.time() + FIRST_BEACON_DELAY_S
         self.beacon_now_flag = threading.Event()
         self.beacon_number = 0
+        self.smart = smartbeacon.SmartBeacon()
         self.aprs_status_due = time.time() + FIRST_BEACON_DELAY_S + STATUS_AFTER_BEACON_S
         self.last_status = None
         self.last_beacon = None
@@ -191,7 +192,7 @@ class Station:
                 if self.beacon_now_flag.is_set():
                     self.beacon_now_flag.clear()
                     self._beacon(manual=True)
-                elif time.time() >= self.beacon_due:
+                elif self._beacon_wanted():
                     self._beacon(manual=False)
                 if time.time() >= self.aprs_status_due:
                     self._status()
@@ -359,6 +360,28 @@ class Station:
             info = aprs.position_info(pos[0], pos[1], bc["symbol"], bc["comment"], pos[2])
             self.aprsis.send(f"{call}>{aprs.TOCALL},TCPIP*:{info}")
 
+    def _motion(self):
+        """(speed in mph, course in degrees) from a fresh GPS fix, or (None, None)."""
+        gps = self.gps
+        if self.cfg["beacon"]["use_gps"] and gps:
+            f = gps.fix()
+            if f["fresh"] and f.get("speed_kn") is not None:
+                return f["speed_kn"] * smartbeacon.MPH_PER_KNOT, f.get("course")
+        return None, None
+
+    def _smart_active(self, bc):
+        return bc["enabled"] and bc["smart_beaconing"] and bc["use_gps"] and self.gps is not None
+
+    def _beacon_wanted(self):
+        now = time.time()
+        if now < self.beacon_due:            # the interval, or for SmartBeaconing the minimum gap / a retry wait
+            return False
+        bc = self.cfg["beacon"]
+        if self._smart_active(bc):
+            speed, course = self._motion()
+            return self.smart.due(bc, now, speed, course)
+        return True
+
     def _our_position(self):
         bc = self.cfg["beacon"]
         gps = self.gps                                 # the web thread may replace it at any moment
@@ -394,7 +417,9 @@ class Station:
         with self.lock:
             cfg = copy.deepcopy(self.cfg)
             interval = cfg["beacon"]["interval_min"] * 60
-            self.beacon_due = time.time() + interval
+            smart = self._smart_active(cfg["beacon"])
+            # with SmartBeaconing the next one is decided by speed and turns; this is only the minimum gap
+            self.beacon_due = time.time() + (cfg["beacon"]["sb_turn_time_s"] if smart else interval)
         bc, call = cfg["beacon"], cfg["station"]["callsign"]
         if not (bc["enabled"] or manual):
             self.beacon_note = "Beacon is turned off"
@@ -416,7 +441,10 @@ class Station:
         # the comment rides on every Nth beacon only, so most beacons stay short
         with_comment = (self.beacon_number - 1) % max(1, bc["comment_every"]) == 0
         comment = bc["comment"] if with_comment else ""
-        tnc2 = aprs.build(call, bc["path"], aprs.position_info(pos[0], pos[1], bc["symbol"], comment, pos[2]))
+        speed_mph, course = self._motion()
+        speed_kn = speed_mph / smartbeacon.MPH_PER_KNOT if speed_mph is not None else None
+        tnc2 = aprs.build(call, bc["path"], aprs.position_info(pos[0], pos[1], bc["symbol"], comment, pos[2],
+                                                               course if speed_kn is not None else None, speed_kn))
         try:
             frame, used = frames.encode(tnc2, fmt)
         except ValueError as exc:
@@ -439,6 +467,7 @@ class Station:
                             "airtime_ms": round(on_air * 1000), "text": tnc2.decode(),
                             "power_dbm": level}
         self.beacon_note = None
+        self.smart.sent(time.time(), course)
         with self.lock:
             self.counts["tx"] += 1
         self._remember({"dir": "tx", "format": used, "bytes": len(frame), "text": tnc2.decode(),
@@ -536,6 +565,24 @@ class Station:
         with self.lock:
             return [e for e in self.heard if e["id"] > since_id]
 
+    def _next_beacon_in(self):
+        bc = self.cfg["beacon"]
+        gap = max(0, round(self.beacon_due - time.time()))
+        if self._smart_active(bc):
+            speed, _ = self._motion()
+            return max(gap, self.smart.next_in_s(bc, time.time(), speed))
+        return gap
+
+    def _smart_status(self, bc):
+        if not bc["smart_beaconing"]:
+            return None
+        if not self._smart_active(bc):
+            return {"on": False, "note": "needs the beacon on and the GPS position in use"}
+        speed, course = self._motion()
+        return {"on": True, "speed_mph": None if speed is None else round(speed, 1),
+                "course": None if course is None else round(course),
+                "every_s": round(smartbeacon.rate_s(bc, speed)), "last_reason": self.smart.reason}
+
     def _noise_summary(self):
         samples = list(self.noise)
         if not samples:
@@ -569,7 +616,8 @@ class Station:
                 "gps": gps,
                 "beacon": {
                     "enabled": cfg["beacon"]["enabled"], "format": cfg["beacon"]["format"],
-                    "next_in_s": max(0, round(self.beacon_due - time.time())) if cfg["beacon"]["enabled"] else None,
+                    "next_in_s": self._next_beacon_in() if cfg["beacon"]["enabled"] else None,
+                    "smart": self._smart_status(cfg["beacon"]),
                     "last": self.last_beacon, "note": self.beacon_note,
                     "status": {"text": cfg["beacon"]["status_text"], "last": self.last_status,
                                "next_in_s": max(0, round(self.aprs_status_due - time.time()))

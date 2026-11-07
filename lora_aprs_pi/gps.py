@@ -57,7 +57,7 @@ def serial_ports():
 
 def new_fix():
     return {"valid": False, "lat": None, "lon": None, "alt_m": None, "sats": 0, "time": 0,
-            "fix_type": None, "hdop": None, "in_view": {}}
+            "fix_type": None, "hdop": None, "in_view": {}, "speed_kn": None, "course": None}
 
 
 def parse(line, fix):
@@ -74,6 +74,8 @@ def parse(line, fix):
                 fix["lat"] = _coord(f[3], f[4], 2)
                 fix["lon"] = _coord(f[5], f[6], 3)
                 fix["time"] = time.time()
+                fix["speed_kn"] = float(f[7]) if len(f) > 7 and f[7] else None
+                fix["course"] = float(f[8]) if len(f) > 8 and f[8] else None
         elif kind == "GGA" and len(f) >= 10:
             fix["sats"] = int(f[7] or 0)                   # satellites used in the fix
             fix["hdop"] = float(f[8]) if f[8] else None

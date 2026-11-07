@@ -28,6 +28,14 @@ DEFAULTS = {
         "path": "WIDE1-1",
         "format": "standard",         # standard | lacf | alternate
         "auto_reduce_power": False,   # lower beacon power while a digipeater reports a strong signal
+        "smart_beaconing": False,     # for a moving tracker: rate from GPS speed, extra beacon on turns
+        "sb_slow_min": 30,            # stopped or slow: one beacon this many minutes apart
+        "sb_fast_s": 60,              # at the high speed or faster: this many seconds apart
+        "sb_low_mph": 3,
+        "sb_high_mph": 60,
+        "sb_turn_min_deg": 25,        # a turn of at least this many degrees ...
+        "sb_turn_slope": 255,         # ... plus this / speed in mph (looser when slow)
+        "sb_turn_time_s": 15,         # never two beacons closer than this
     },
     "radio": {
         "profile": hardware.DEFAULT_PROFILE,
@@ -169,6 +177,21 @@ def check(cfg):
     if not PATH_RE.match(bc["path"]) or not _wide_ok(bc["path"]):
         errs["beacon.path"] = "Like WIDE1-1 or WIDE1-1,WIDE2-1, or empty"
     bc["auto_reduce_power"] = bool(bc["auto_reduce_power"])
+    bc["smart_beaconing"] = bool(bc["smart_beaconing"])
+    for key, lo, hi, msg in (("sb_slow_min", 1, 120, "Minutes, 1 to 120"), ("sb_fast_s", 10, 600, "Seconds, 10 to 600"),
+                             ("sb_low_mph", 1, 30, "mph, 1 to 30"), ("sb_high_mph", 5, 200, "mph, 5 to 200"),
+                             ("sb_turn_min_deg", 5, 90, "Degrees, 5 to 90"), ("sb_turn_slope", 0, 1000, "0 to 1000"),
+                             ("sb_turn_time_s", 5, 300, "Seconds, 5 to 300")):
+        try:
+            bc[key] = int(float(bc[key]))
+            if not lo <= bc[key] <= hi:
+                raise ValueError
+        except (TypeError, ValueError):
+            errs["beacon." + key] = msg
+    if "beacon.sb_low_mph" not in errs and "beacon.sb_high_mph" not in errs and bc["sb_high_mph"] <= bc["sb_low_mph"]:
+        errs["beacon.sb_high_mph"] = "Higher than the low speed"
+    if bc["smart_beaconing"] and not bc["use_gps"]:
+        errs["beacon.smart_beaconing"] = "Needs the GPS position (tick Use the GPS position)"
     if bc["format"] not in ("standard", "lacf", "alternate"):
         errs["beacon.format"] = "Choose a format"
     if len(str(bc["symbol"])) != 2:

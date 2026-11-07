@@ -115,6 +115,23 @@ lossless position block.
   aprs.fi shows it as the station's status. It goes out in Experimental LACF only when the
   beacon format is LACF; otherwise standard.
 
+## Smart Beaconing (moving trackers)
+
+Settings → Beacon → **Smart Beaconing for moving trackers** sets the beacon rate from the GPS
+speed instead of a fixed interval, as most trackers do (the HamHUD SmartBeaconing method):
+
+- below the **low speed** (3 mph): one beacon every **slow rate** (30 min)
+- at the **high speed** (60 mph) or faster: one every **fast rate** (60 s)
+- in between, the gap shrinks with speed (fast rate × high speed ÷ speed: every 2 min at
+  30 mph), so beacons come about every same distance
+- a **turn** sends one at once when the heading changes by more than turn angle + turn
+  slope ÷ speed (25° + 255 ÷ 30 = 33° at 30 mph), but never sooner than the **minimum gap**
+  (15 s)
+
+It needs a GPS and "Use the GPS position"; while on, "Every (minutes)" is not used. Beacons
+from a GPS fix also carry course and speed (`!DDMM.mmN/DDDMM.mmW>090/026…`), so maps show the
+direction of travel. Status → Beacon shows the speed, heading and current rate.
+
 ## iGate (APRS-IS)
 
 Turn on **Send what this station hears to APRS-IS** under Settings → iGate.
@@ -302,6 +319,7 @@ make run        # a pretend radio at http://localhost:8080
 | `lora_aprs_pi/static/symbols/` | The APRS symbol pictures shown in Settings: the [aprs.fi set by OH7LZB](https://github.com/hessu/aprs-symbols), under its own terms (see the README there) |
 | `lora_aprs_pi/mqtt.py` | The map feed: event lines and a small MQTT client |
 | `lora_aprs_pi/digi.py` | Digipeater path rules and RXT signal reports |
+| `lora_aprs_pi/smartbeacon.py` | Smart Beaconing: beacon rate from speed, extra beacons on turns |
 | `lora_aprs_pi/power.py` | Auto reduced power |
 | `lora_aprs_pi/sim_radio.py` | The pretend radio used by `make run` and the tests |
 | `lora_aprs_pi/web.py`, `static/` | The web page and its API |

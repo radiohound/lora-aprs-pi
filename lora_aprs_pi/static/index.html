@@ -112,6 +112,22 @@
             <option value="alternate">Alternate standard and Experimental LACF</option>
           </select>
         </label>
+        <label class="check"><input type="checkbox" name="beacon.smart_beaconing" id="sb-on"> Smart Beaconing for moving trackers</label>
+        <p class="hint">Beacons often while moving fast, rarely when stopped, and sends an extra one on turns so the track
+          follows the road. Needs a GPS and "Use the GPS position". Replaces the "Every (minutes)" setting while on.
+          Beacons from the GPS also carry speed and heading.</p>
+        <div id="sb-settings" class="grid" hidden>
+          <label>Slow rate (minutes) <input name="beacon.sb_slow_min" type="number" inputmode="numeric" min="1" max="120"></label>
+          <label>Fast rate (seconds) <input name="beacon.sb_fast_s" type="number" inputmode="numeric" min="10" max="600"></label>
+          <label>Low speed (mph) <input name="beacon.sb_low_mph" type="number" inputmode="numeric" min="1" max="30"></label>
+          <label>High speed (mph) <input name="beacon.sb_high_mph" type="number" inputmode="numeric" min="5" max="200"></label>
+          <label>Turn angle (degrees) <input name="beacon.sb_turn_min_deg" type="number" inputmode="numeric" min="5" max="90"></label>
+          <label>Turn slope <input name="beacon.sb_turn_slope" type="number" inputmode="numeric" min="0" max="1000"></label>
+          <label>Minimum gap (seconds) <input name="beacon.sb_turn_time_s" type="number" inputmode="numeric" min="5" max="300"></label>
+          <p class="hint">Slow rate: below the low speed. Fast rate: at the high speed or faster. The standard values (30 min, 60 s, 3 and 60 mph, 25°, 255, 15 s) suit a car. Between the two
+            speeds the gap shrinks as you go faster, so beacons come about every same distance. A turn sends one when the
+            heading changes by more than the turn angle plus the slope divided by the speed (at 30 mph: 25 + 255/30 = 33°).</p>
+        </div>
         <label class="check"><input type="checkbox" name="beacon.auto_reduce_power"> Auto reduced power</label>
         <p class="hint">Lowers the beacon power, never above the power set under Radio, while a digipeater
           reports hearing you with plenty to spare. Goes back up when the margin gets thin or no report comes back.

@@ -172,9 +172,14 @@ function renderStatus(s) {
   const b = s.beacon;
   const fmt = { standard: "standard", lacf: "Experimental LACF", alternate: "alternating standard and Experimental LACF" }[b.format];
   const st = b.status || {};
+  const sb = b.smart;
+  const sbText = !sb ? "" : !sb.on ? ` Smart Beaconing is ticked but ${sb.note}.`
+    : sb.speed_mph == null ? ` Smart Beaconing: no moving GPS fix, so one every ${inMinutes(sb.every_s)}.`
+    : ` Smart Beaconing: ${sb.speed_mph} mph` + (sb.course != null ? ` heading ${sb.course}°` : "")
+      + `, one about every ${inMinutes(sb.every_s)}` + (sb.last_reason === "turn" ? ", the last one for a turn." : ".");
   $("#s-beacon").textContent = (b.enabled
     ? `Next beacon in ${inMinutes(b.next_in_s)}, ${fmt} format.` : "Automatic beacons are off.")
-    + (st.next_in_s != null ? ` Next status message in ${inMinutes(st.next_in_s)}.` : "");
+    + sbText + (st.next_in_s != null ? ` Next status message in ${inMinutes(st.next_in_s)}.` : "");
   $("#s-beacon-note").hidden = !b.note;
   $("#s-beacon-note").textContent = b.note || "";
   $("#s-beacon-last").hidden = !b.last;
@@ -307,6 +312,7 @@ async function loadSettings() {
   sym.replaceChildren(...Object.entries(options.symbols).map(([k, label]) => { const o = el("option", "", `${label} (${k})`); o.value = k; return o; }));
   fillForm($("#settings-form"), data.settings);
   showSymbol();
+  $("#sb-settings").hidden = !$("#sb-on").checked;
   fillForm($("#w-hotspot"), data.settings);
   $("#pw-state").textContent = data.settings.web.password_set
     ? "A password is set. Enter a new one to change it." : "No password: anyone on this network can change settings.";
@@ -458,6 +464,7 @@ async function save(form, changes, msgEl) {
 }
 
 $("#symbols").addEventListener("change", showSymbol);
+$("#sb-on").addEventListener("change", () => { $("#sb-settings").hidden = !$("#sb-on").checked; });
 
 $("#settings-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
