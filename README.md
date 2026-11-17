@@ -145,10 +145,16 @@ Gating to APRS-IS is for licensed amateurs.
   different one, or -1 for a listen-only login. The Status tab says whether the
   server accepted the login (verified) or not.
 - **What gets gated:** every packet heard, except those with NOGATE, RFONLY,
-  TCPIP or TCPXX in the path, general queries (`?APRS?`), the station's own
-  packets, and repeats of the same packet within 30 seconds. Third-party packets
-  are unwrapped and the same rules applied to the packet inside. The Heard tab
-  marks each packet **Gated**, or says why it wasn't.
+  TCPIP or TCPXX in the path, general queries (`?APRS?`) and the station's own
+  packets. Every copy is gated, duplicates and digipeated copies included: the
+  APRS-IS servers drop duplicates themselves and use the copies to see who heard
+  whom (aprsc's [IGATE-HINTS](https://github.com/hessu/aprsc/blob/main/doc/IGATE-HINTS.md)).
+  Third-party packets are unwrapped and the same rules applied to the packet
+  inside. The Heard tab marks each packet **Gated**, or says why it wasn't.
+- **Byte for byte:** a packet goes to APRS-IS exactly as heard, up to its first
+  CR or LF, never decoded and re-encoded, so other iGates' copies match ours.
+- **Nothing is held back:** a packet heard while APRS-IS is down is not sent
+  later; a late copy would make a moving station jump backwards on the maps.
 - **LACF:** LACF frames are decoded back to ordinary APRS text before upload.
 - **Uploads are tagged `qAO`** (a receive-only iGate), since this version doesn't
   send APRS-IS traffic back over the radio.

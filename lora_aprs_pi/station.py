@@ -53,7 +53,6 @@ class Station:
         self.beacon_note = None
 
         self.aprsis = None                   # APRS-IS connection when the iGate is on
-        self.dedupe = igate.Dedupe()
         self.digi_seen = igate.Dedupe()     # packets already repeated (or queued) in the last 30 s
         self.digi_jobs = []                  # repeats waiting for their moment
         state_dir = os.path.dirname(os.path.abspath(cfg_path))
@@ -236,8 +235,8 @@ class Station:
                     entry.update(pkt)
                     self._add_distance(entry)
                     self._own_repeat(entry)
-                self._gate(entry)
-                self._maybe_repeat(entry, raw, rssi, snr, freq_offset)
+                self._gate(entry, got["text"])
+                self._maybe_repeat(entry, got["text"], raw, rssi, snr, freq_offset)
         with self.lock:
             self.counts["rx_ok" if entry.get("text") else "rx_dropped"] += 1
             if raw is None:
@@ -273,25 +272,29 @@ class Station:
                     if level is not None:
                         entry["power_next"] = {"from": before, "to": level}
 
-    def _gate(self, entry):
-        """Pass a received packet to APRS-IS when the iGate is on, and note why if not."""
+    def _gate(self, entry, tnc2):
+        """Pass a received packet to APRS-IS when the iGate is on, and note why if not.
+
+        tnc2 is the packet in bytes, exactly as received (or as the LACF codec rebuilt it);
+        entry["text"] is only the decoded copy for the screen. Every copy heard is gated,
+        duplicates included: the APRS-IS servers dedupe, and use the copies."""
         conn = self.aprsis
         if not conn:
             return
         call = self.cfg["station"]["callsign"]
-        text, reason = igate.check(entry["text"], call)
+        text, reason = igate.check(tnc2, call)
         if text is None:
             entry["not_gated"] = reason
             return
-        if not self.dedupe.is_new(text):
-            entry["not_gated"] = "already gated in the last 30 s"
+        if conn.status()["state"] != "connected":
+            entry["not_gated"] = "APRS-IS not connected"
             return
         conn.send(igate.upload_line(text, call))
         entry["gated"] = True
         with self.lock:
             self.counts["gated"] += 1
 
-    def _maybe_repeat(self, entry, raw, rssi, snr, freq_offset):
+    def _maybe_repeat(self, entry, tnc2, raw, rssi, snr, freq_offset):
         """Queue a repeat when the digipeater serves this packet's path."""
         mode = self.cfg["digi"]["mode"]
         if mode == "off" or entry.get("format") not in ("standard", "lacf"):
@@ -299,12 +302,12 @@ class Station:
         call = self.cfg["station"]["callsign"]
         if call == "N0CALL":
             return
-        new_tnc2, reason = digi.decide(entry["text"], call, mode)
+        new_tnc2, reason = digi.decide(tnc2, call, mode)
         if new_tnc2 is None:
             if reason not in ("digipeater off", "no hops left"):
                 entry["not_repeated"] = reason
             return
-        if not self.digi_seen.is_new(entry["text"]):
+        if not self.digi_seen.is_new(tnc2):
             entry["not_repeated"] = "already repeated in the last 30 s"
             return
         self.digi_jobs.append({
@@ -338,7 +341,7 @@ class Station:
         if frame and job["format"] == "lacf":
             frame = digi.build_frame(job["raw"], "lacf", job["tnc2"], call, tuple_for(len(frame)))
         if not frame:
-            log.info("not repeated (frame too long or not relayable): %s", job["tnc2"])
+            log.info("not repeated (frame too long or not relayable): %s", job["tnc2"].decode("utf-8", "replace"))
             return
         on_air = self.radio.transmit(frame)
         if self.events:
@@ -346,9 +349,9 @@ class Station:
         with self.lock:
             self.counts["repeated"] += 1
         self._remember({"dir": "tx", "kind": "repeat", "format": job["format"], "bytes": len(frame),
-                        "text": job["tnc2"], "error": None, "source": job["source"],
+                        "text": job["tnc2"].decode("utf-8", "replace"), "error": None, "source": job["source"],
                         "airtime_ms": round(on_air * 1000)})
-        log.info("REPEAT %s %d bytes: %s", job["format"], len(frame), job["tnc2"])
+        log.info("REPEAT %s %d bytes: %s", job["format"], len(frame), job["tnc2"].decode("utf-8", "replace"))
 
     def _position_to_aprsis(self):
         """The station's own position, sent straight to APRS-IS (no radio time used)."""

@@ -101,10 +101,14 @@ def new_path(path, mycall, mode):
 
 
 def decide(tnc2, mycall, mode):
-    """For a received TNC2 packet: (packet to send, None) or (None, reason)."""
-    head, sep, info = tnc2.partition(":")
-    if not sep or ">" not in head:
+    """For a received TNC2 packet in bytes: (packet bytes to send, None) or (None, reason).
+
+    Only the header is rewritten; the information field is copied byte for byte, so a
+    byte that isn't UTF-8 goes out as it came in."""
+    head, sep, info = tnc2.partition(b":")
+    if not sep or b">" not in head:
         return None, "not an APRS packet"
+    head = head.decode("latin-1")                  # lossless, and the header is ASCII anyway
     src, _, rest = head.partition(">")
     dest, _, path = rest.partition(",")
     if src.upper() == mycall:
@@ -112,12 +116,14 @@ def decide(tnc2, mycall, mode):
     path2, reason = new_path(path, mycall, mode)
     if path2 is None:
         return None, reason
-    return f"{src}>{dest},{path2}:{info}", None
+    return f"{src}>{dest},{path2}".encode("latin-1") + b":" + info, None
 
 
 def build_frame(received_frame, fmt, new_tnc2, mycall, tuple4):
-    """The frame to transmit: a standard frame as text, an LACF frame relayed per spec 11."""
+    """The frame to transmit: a standard frame as text, an LACF frame relayed per spec 11.
+
+    new_tnc2 is bytes (from decide)."""
     if fmt == "lacf":
-        return lacf.relay_to(received_frame, new_tnc2.encode(), mycall.encode(), tuple4)
-    frame = b"<\xff\x01" + new_tnc2.encode()
+        return lacf.relay_to(received_frame, new_tnc2, mycall.encode(), tuple4)
+    frame = b"<\xff\x01" + new_tnc2
     return frame if len(frame) <= 255 else None

@@ -100,8 +100,8 @@ class TestStation(unittest.TestCase):
                 self.assertEqual(st.radio.sent_power[0], 22)            # 30 dBm on the 30 dBm module
 
                 # A digipeater repeats it and reports hearing us at -60 dBm, SNR +8 dB
-                text = frames.decode(ours)["text"].decode()
-                repeat_tnc2 = text.replace("WIDE1-1", "N0DIGI*")
+                text = frames.decode(ours)["text"]
+                repeat_tnc2 = text.replace(b"WIDE1-1", b"N0DIGI*")
                 repeat = digi.build_frame(ours, "lacf", repeat_tnc2, "N0DIGI",
                                           digi.rxt_tuple(-60, 8, 0, 3000, 12, 125))
                 st._received(repeat, -70.0, 5.0, 0)
