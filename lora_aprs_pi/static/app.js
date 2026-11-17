@@ -148,7 +148,7 @@ function renderStatus(s) {
     $("#s-igate").className = ig.verified ? "good" : "bad";
   } else {
     $("#s-igate").textContent = igText[ig.state] || ig.state;
-    $("#s-igate").className = ig.state === "error" ? "bad" : "";
+    $("#s-igate").className = ig.state === "error" ? "bad" : (ig.state === "off" || ig.state === "needs a callsign") ? "warn" : "";
   }
   const mq = s.mqtt;
   const mqText = { off: "Off", "needs a callsign": "Set your callsign to start MQTT",
@@ -409,23 +409,32 @@ function showErrors(form, errors) {
   return first;
 }
 
-// The passcode box shows the passcode worked out from the saved callsign, so it's
-// clear one is already in place. Typing a number overrides it.
+// The passcode worked out from the saved callsign is shown as a plain line, not as a greyed
+// placeholder that looks like a setting. Whether it is in use depends on the iGate tick box,
+// and the section says plainly when the iGate is off.
 function showPasscode(savedCall) {
-  const box = $("[name='igate.passcode']");
+  const on = $("[name='igate.enabled']").checked;
+  const typed = $("[name='igate.passcode']").value.trim();
   const typedCall = $("[name='station.callsign']").value.trim().toUpperCase();
   const auto = options && options.auto_passcode;
-  if (auto !== null && auto !== undefined && typedCall === savedCall) {
-    box.placeholder = `${auto} (from ${savedCall})`;
-    $("#passcode-hint").textContent =
-      `Filled in automatically from ${savedCall}. Type a number only to use a different passcode, or -1 to listen only.`;
+  $("#igate-off").hidden = on;
+  $("#igate-fields").classList.toggle("dim", !on);
+  const line = $("#passcode-line");
+  if (typed !== "") {
+    line.textContent = on ? `Passcode in use: ${typed} (the one typed below).` : `Passcode ${typed} (typed below), used once the iGate is on.`;
+  } else if (auto !== null && auto !== undefined && typedCall === savedCall) {
+    line.textContent = on ? `Passcode in use: ${auto}, worked out from ${savedCall}.`
+                          : `Passcode ${auto}, worked out from ${savedCall}, used once the iGate is on.`;
   } else {
-    box.placeholder = "Worked out from your callsign";
-    $("#passcode-hint").textContent = "Filled in automatically from your callsign once you save it.";
+    line.textContent = "The passcode is worked out from your callsign once you save it.";
   }
+  line.className = on ? "" : "hint";
+  $("#passcode-hint").textContent = "Leave the box empty to use the worked-out passcode. Type a number only to use a different one, or -1 to listen only.";
 }
 let savedCallsign = "";
 $("[name='station.callsign']").addEventListener("input", () => showPasscode(savedCallsign));
+$("[name='igate.enabled']").addEventListener("change", () => showPasscode(savedCallsign));
+$("[name='igate.passcode']").addEventListener("input", () => showPasscode(savedCallsign));
 
 function boardChanged() {
   if (!options) return;

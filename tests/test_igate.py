@@ -111,7 +111,7 @@ class TestRules(unittest.TestCase):
 
     def test_query_own_and_injection(self):
         self.assertEqual(self.gate("N0TEST-7>APLRT1:?APRS?")[1], "general query")
-        self.assertEqual(self.gate(f"{CALL}>APZLPI,WIDE1-1:>me")[1], "our own packet")
+        self.assertEqual(self.gate(f"{CALL}>APLPIK,WIDE1-1:>me")[1], "our own packet")
         self.assertEqual(self.gate("N0TEST-7>APLRT1:>hi\r\nN0EVIL>APRS:>injected"), ("N0TEST-7>APLRT1:>hi", None))
 
     def test_upload_line(self):
@@ -239,6 +239,35 @@ class TestStationGates(unittest.TestCase):
                     b"N0TEST-9>APLRT1" + q + b">a\x00b",
                     b"N0TEST-6>APLRT1" + q + b">cut"])
                 self.assertEqual(st.status()["counts"]["gated"], 5)
+            finally:
+                st.stop()
+                srv.close()
+
+    def test_heard_tab_says_when_the_igate_is_off(self):
+        with tempfile.TemporaryDirectory() as d:
+            st = Station(os.path.join(d, "config.json"), simulate=True)
+            st.change_settings({"station": {"callsign": CALL}})
+            st._received(b"<\xff\x01N0TEST-7>APLRT1,WIDE1-1:>hi", -100.0, 2.0)
+            self.assertEqual(st.heard_since(0)[0]["not_gated"], "iGate is off")
+
+    def test_position_and_status_sent_right_after_each_login(self):
+        srv = FakeServer()
+        with tempfile.TemporaryDirectory() as d:
+            st = Station(os.path.join(d, "config.json"), simulate=True)
+            st.start()
+            try:
+                st.is_position_due = time.time() + 3600          # so only the login can send it
+                errs = st.change_settings({"station": {"callsign": CALL},
+                                           "beacon": {"enabled": True, "latitude": 37.0, "longitude": -121.58, "status_text": "Hill digi"},
+                                           "igate": {"enabled": True, "server": "127.0.0.1", "port": srv.port}})
+                self.assertEqual(errs, {})
+                ours = lambda: [l for l in srv.lines if l.startswith(f"{CALL}>")]   # the pretend radio's traffic is gated too
+                self.assertTrue(wait_for(lambda: len(ours()) >= 2))
+                self.assertTrue(ours()[0].startswith(f"{CALL}>APLPIK,TCPIP*:!"), ours()[0])
+                self.assertEqual(ours()[1], f"{CALL}>APLPIK,TCPIP*:>Hill digi")
+                self.assertEqual(st.status()["igate"]["dropped"], 0)
+                time.sleep(1.5)
+                self.assertEqual(len(ours()), 2)                     # once per login, not every pass
             finally:
                 st.stop()
                 srv.close()

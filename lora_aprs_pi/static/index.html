@@ -151,6 +151,8 @@
         <legend>iGate</legend>
         <label class="check"><input type="checkbox" name="igate.enabled"> Send what this station hears to APRS-IS</label>
         <p class="hint">For licensed amateurs. The station also puts its own position on APRS-IS, without using air time.</p>
+        <p class="note" id="igate-off" hidden><strong>The iGate is OFF:</strong> nothing this station hears goes to APRS-IS. Tick the box above and save to turn it on.</p>
+        <div id="igate-fields">
         <div class="pair">
           <label>Server
             <input name="igate.server" spellcheck="false" autocapitalize="off" placeholder="rotate.aprs2.net">
@@ -159,10 +161,12 @@
             <input name="igate.port" type="number" inputmode="numeric">
           </label>
         </div>
-        <label>Passcode
-          <input name="igate.passcode" inputmode="numeric" autocomplete="off">
+        <p id="passcode-line"></p>
+        <label>Different passcode (optional)
+          <input name="igate.passcode" inputmode="numeric" autocomplete="off" placeholder="Leave empty">
         </label>
         <p class="hint" id="passcode-hint"></p>
+        </div>
       </fieldset>
 
       <fieldset>

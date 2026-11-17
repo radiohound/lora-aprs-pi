@@ -48,7 +48,7 @@ class TestPathRules(unittest.TestCase):
     def test_decide(self):
         self.assertEqual(digi.decide(b"N0TEST-7>APLRT1,WIDE1-1:>hi", CALL, "fill-in"),
                          (f"N0TEST-7>APLRT1,{CALL}*:>hi".encode(), None))
-        self.assertEqual(digi.decide(f"{CALL}>APZLPI,WIDE1-1:>me".encode(), CALL, "fill-in")[1], "our own packet")
+        self.assertEqual(digi.decide(f"{CALL}>APLPIK,WIDE1-1:>me".encode(), CALL, "fill-in")[1], "our own packet")
 
     def test_decide_keeps_the_information_field_byte_for_byte(self):
         info = b">73\xb0 \x00\xff\xfe"                    # Latin-1 degree sign, NUL, not UTF-8

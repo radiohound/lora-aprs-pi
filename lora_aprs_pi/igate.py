@@ -122,6 +122,7 @@ class AprsIs:
         self.server_name = None
         self.sent = 0
         self.dropped = 0                     # lines not sent because APRS-IS was down
+        self.logins = 0                      # successful logins so far: the station re-announces itself after each
         self._out = queue.Queue(maxsize=100)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="aprs-is", daemon=True)
@@ -197,6 +198,7 @@ class AprsIs:
             m = re.search(r"server (\S+)", line)
             self.server_name = m.group(1) if m else None
             self.state = "connected"
+            self.logins += 1
             log.info("APRS-IS: logged in to %s, %s", self.server_name,
                      "verified" if self.verified else "UNVERIFIED (check the callsign or passcode)")
 

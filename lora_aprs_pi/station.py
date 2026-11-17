@@ -53,6 +53,7 @@ class Station:
         self.beacon_note = None
 
         self.aprsis = None                   # APRS-IS connection when the iGate is on
+        self._announced_logins = 0           # the connection's login count we last announced ourselves for
         self.digi_seen = igate.Dedupe()     # packets already repeated (or queued) in the last 30 s
         self.digi_jobs = []                  # repeats waiting for their moment
         state_dir = os.path.dirname(os.path.abspath(cfg_path))
@@ -101,6 +102,7 @@ class Station:
         with self.lock:
             ig, call = dict(self.cfg["igate"]), self.cfg["station"]["callsign"]
         self.aprsis = None
+        self._announced_logins = 0
         if ig["enabled"] and call != "N0CALL":
             code = ig["passcode"] if ig["passcode"] != "" else igate.passcode(call)
             self.aprsis = igate.AprsIs(ig["server"], ig["port"], call, code)
@@ -196,7 +198,12 @@ class Station:
                 if time.time() >= self.aprs_status_due:
                     self._status()
                 self._run_digi_jobs()
-                if self.aprsis and time.time() >= self.is_position_due:
+                conn = self.aprsis
+                if conn and conn.logins != self._announced_logins:      # just logged in: position and status now, not later
+                    self._announced_logins = conn.logins
+                    self._position_to_aprsis()
+                    self._status_to_aprsis()
+                elif conn and conn.state == "connected" and time.time() >= self.is_position_due:
                     self._position_to_aprsis()
                 self._mqtt_tick()
                 events = self.events
@@ -280,6 +287,9 @@ class Station:
         duplicates included: the APRS-IS servers dedupe, and use the copies."""
         conn = self.aprsis
         if not conn:
+            with self.lock:
+                ig, call = self.cfg["igate"], self.cfg["station"]["callsign"]
+            entry["not_gated"] = "iGate needs a callsign" if ig["enabled"] and call == "N0CALL" else "iGate is off"
             return
         call = self.cfg["station"]["callsign"]
         text, reason = igate.check(tnc2, call)
@@ -362,6 +372,14 @@ class Station:
         if self.aprsis and pos:
             info = aprs.position_info(pos[0], pos[1], bc["symbol"], bc["comment"], pos[2])
             self.aprsis.send(f"{call}>{aprs.TOCALL},TCPIP*:{info}")
+
+    def _status_to_aprsis(self):
+        """The status text on APRS-IS only, right after a login (the radio keeps its own schedule).
+        Sent when the station would send a status over the air too."""
+        with self.lock:
+            bc, call = dict(self.cfg["beacon"]), self.cfg["station"]["callsign"]
+        if self.aprsis and bc["status_text"] and bc["enabled"] and call != "N0CALL":
+            self.aprsis.send(f"{call}>{aprs.TOCALL},TCPIP*:>{bc['status_text']}")
 
     def _motion(self):
         """(speed in mph, course in degrees) from a fresh GPS fix, or (None, None)."""
