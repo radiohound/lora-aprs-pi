@@ -94,6 +94,8 @@ main { max-width: 680px; margin: 0 auto; padding: 0 16px 24px; }
 .rows dd { margin: 0; overflow-wrap: anywhere; }
 .bad { color: var(--fault); }
 .good { color: var(--listen); }
+.warn { color: var(--tx); font-weight: 600; }
+.dim { opacity: 0.5; }
 
 .lede { font-size: 1.0625rem; margin: 0 0 0.5rem; }
 .note {

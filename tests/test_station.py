@@ -50,7 +50,7 @@ class TestLacfVectors(unittest.TestCase):
 
 
 class TestFrames(unittest.TestCase):
-    PKT = b"N0CALL-7>APZLPI,WIDE1-1:!3704.20N/12133.80W>trail test"
+    PKT = b"N0CALL-7>APLPIK,WIDE1-1:!3704.20N/12133.80W>trail test"
 
     def test_standard_round_trip(self):
         frame, used = frames.encode(self.PKT, "standard")
@@ -66,7 +66,7 @@ class TestFrames(unittest.TestCase):
 
     def test_broken_wide_path_not_sent(self):
         with self.assertRaises(ValueError):
-            frames.encode(b"N0CALL>APZLPI,WIDE2-3:>status", "lacf")
+            frames.encode(b"N0CALL>APLPIK,WIDE2-3:>status", "lacf")
 
     def test_unknown_frame_never_shown_as_text(self):
         got = frames.decode(b"<\xff\x81abcdef")
@@ -243,6 +243,7 @@ class TestStation(unittest.TestCase):
 
     def test_status_message_over_the_air_and_to_aprsis(self):
         class FakeIs:
+            state, logins = "connected", 0
             def __init__(self): self.lines = []
             def send(self, line): self.lines.append(line)
             def stop(self): pass
@@ -253,7 +254,7 @@ class TestStation(unittest.TestCase):
         self.st.aprs_status_due = 0
         self.assertTrue(self.wait_for(lambda: self.st.last_status is not None))
         self.assertEqual(self.st.last_status["text"], "Hill digi + iGate")        # spaces tidied
-        self.assertIn("K6ATV-10>APZLPI,TCPIP*:>Hill digi + iGate", self.st.aprsis.lines)
+        self.assertIn("K6ATV-10>APLPIK,TCPIP*:>Hill digi + iGate", self.st.aprsis.lines)
         sent = [frames.decode(f)["text"] for f in self.st.radio.sent]
         self.assertTrue(any(t and t.endswith(b":>Hill digi + iGate") for t in sent))
         nxt = self.st.status()["beacon"]["status"]["next_in_s"]
@@ -305,7 +306,7 @@ class TestStation(unittest.TestCase):
         frame = self.st.radio.sent[0]
         got = frames.decode(frame)
         self.assertEqual(got["format"], "lacf")
-        self.assertTrue(got["text"].startswith(b"N0TST-3>APZLPI,WIDE1-1:!3704.20N/12133.60W"))
+        self.assertTrue(got["text"].startswith(b"N0TST-3>APLPIK,WIDE1-1:!3704.20N/12133.60W"))
         self.assertEqual(self.st.heard_since(0)[0]["dir"], "tx")
 
     def test_bad_settings_rejected_and_not_saved(self):

@@ -23,6 +23,7 @@ class FakeServer:
         self.port = self.sock.getsockname()[1]
         self.verified = verified
         self.lines = []
+        self.raw = []                    # the same lines as bytes, exactly as received
         self.login = None
         threading.Thread(target=self._serve, daemon=True).start()
 
@@ -38,7 +39,8 @@ class FakeServer:
             line = f.readline()
             if not line:
                 break
-            self.lines.append(line.decode().rstrip("\r\n"))
+            self.raw.append(line.rstrip(b"\r\n"))
+            self.lines.append(line.decode("utf-8", "replace").rstrip("\r\n"))
         conn.close()
 
     def close(self):
@@ -66,11 +68,26 @@ class TestPasscode(unittest.TestCase):
 
 class TestRules(unittest.TestCase):
     def gate(self, pkt):
-        return igate.check(pkt, CALL)
+        text, reason = igate.check(pkt.encode() if isinstance(pkt, str) else pkt, CALL)
+        return (text.decode() if text is not None else None), reason
 
     def test_ordinary_packet_gated(self):
         pkt = "N0TEST-7>APLRT1,WIDE1-1:!3704.20N/12133.80W>trail"
         self.assertEqual(self.gate(pkt), (pkt, None))
+
+    def test_non_utf8_byte_kept(self):
+        pkt = b"N0TEST-7>APLRT1,WIDE1-1:>72\xb0F"           # Latin-1 degree sign
+        self.assertEqual(igate.check(pkt, CALL), (pkt, None))
+        self.assertEqual(igate.upload_line(pkt, CALL), f"N0TEST-7>APLRT1,WIDE1-1,qAO,{CALL}:>72".encode() + b"\xb0F")
+
+    def test_nul_gated_not_rejected(self):
+        pkt = b"N0TEST-7>APLRT1:>a\x00b\x00"
+        self.assertEqual(igate.check(pkt, CALL), (pkt, None))
+
+    def test_cut_at_first_cr_or_lf(self):
+        self.assertEqual(igate.check(b"N0TEST-7>APLRT1:>hi\rN0EVIL>APRS:>injected", CALL),
+                         (b"N0TEST-7>APLRT1:>hi", None))
+        self.assertEqual(igate.check(b"N0TEST-7>APLRT1:>hi\nthere", CALL), (b"N0TEST-7>APLRT1:>hi", None))
 
     def test_blocked_hops(self):
         for hop in ("NOGATE", "RFONLY", "TCPIP*", "TCPXX", "nogate"):
@@ -94,12 +111,12 @@ class TestRules(unittest.TestCase):
 
     def test_query_own_and_injection(self):
         self.assertEqual(self.gate("N0TEST-7>APLRT1:?APRS?")[1], "general query")
-        self.assertEqual(self.gate(f"{CALL}>APZLPI,WIDE1-1:>me")[1], "our own packet")
-        self.assertEqual(self.gate("N0TEST-7>APLRT1:>hi\r\nN0EVIL>APRS:>injected")[1], "has a line break")
+        self.assertEqual(self.gate(f"{CALL}>APLPIK,WIDE1-1:>me")[1], "our own packet")
+        self.assertEqual(self.gate("N0TEST-7>APLRT1:>hi\r\nN0EVIL>APRS:>injected"), ("N0TEST-7>APLRT1:>hi", None))
 
     def test_upload_line(self):
-        self.assertEqual(igate.upload_line("N0TEST-7>APLRT1,WIDE1-1:>hi", CALL),
-                         f"N0TEST-7>APLRT1,WIDE1-1,qAO,{CALL}:>hi")
+        self.assertEqual(igate.upload_line(b"N0TEST-7>APLRT1,WIDE1-1:>hi", CALL),
+                         f"N0TEST-7>APLRT1,WIDE1-1,qAO,{CALL}:>hi".encode())
 
 
 class TestDedupe(unittest.TestCase):
@@ -109,6 +126,11 @@ class TestDedupe(unittest.TestCase):
         self.assertFalse(d.is_new("N0TEST-7>APLRT1,N0DIGI*:>hi", now=10))
         self.assertTrue(d.is_new("N0TEST-7>APLRT1,WIDE1-1:>hi", now=41))
         self.assertTrue(d.is_new("N0TEST-7>APLRT1,WIDE1-1:>different", now=41))
+
+    def test_bytes_too(self):                       # the digipeater hands it bytes
+        d = igate.Dedupe(30)
+        self.assertTrue(d.is_new(b"N0TEST-7>APLRT1,WIDE1-1:>hi\xb0", now=0))
+        self.assertFalse(d.is_new(b"N0TEST-7>APLRT1,N0DIGI*:>hi\xb0", now=10))
 
 
 class TestConnection(unittest.TestCase):
@@ -124,6 +146,35 @@ class TestConnection(unittest.TestCase):
             conn.send("N0TEST-7>APLRT1,qAO,N0TST-3:>hi")
             self.assertTrue(wait_for(lambda: srv.lines))
             self.assertEqual(srv.lines[0], "N0TEST-7>APLRT1,qAO,N0TST-3:>hi")
+        finally:
+            conn.stop()
+            srv.close()
+
+    def test_send_while_disconnected_is_dropped(self):
+        srv = FakeServer()
+        conn = igate.AprsIs("127.0.0.1", srv.port, CALL, igate.passcode(CALL))
+        try:
+            conn.send(b"N0TEST-7>APLRT1,qAO,N0TST-3:>too early")   # before the login answer
+            self.assertTrue(wait_for(lambda: conn.status()["state"] == "connected"))
+            self.assertEqual(conn.status()["dropped"], 1)
+            conn.send(b"N0TEST-7>APLRT1,qAO,N0TST-3:>on time")
+            self.assertTrue(wait_for(lambda: srv.lines))
+            time.sleep(1.5)
+            self.assertEqual(srv.lines, ["N0TEST-7>APLRT1,qAO,N0TST-3:>on time"])
+        finally:
+            conn.stop()
+            srv.close()
+
+    def test_stale_line_not_sent(self):
+        srv = FakeServer()
+        conn = igate.AprsIs("127.0.0.1", srv.port, CALL, igate.passcode(CALL))
+        try:
+            self.assertTrue(wait_for(lambda: conn.status()["state"] == "connected"))
+            conn._out.put_nowait((time.monotonic() - igate.FRESH_S - 1, b"N0TEST-7>APLRT1:>stale"))
+            conn.send(b"N0TEST-7>APLRT1:>fresh")
+            self.assertTrue(wait_for(lambda: srv.lines))
+            time.sleep(1.5)
+            self.assertEqual(srv.lines, ["N0TEST-7>APLRT1:>fresh"])
         finally:
             conn.stop()
             srv.close()
@@ -162,6 +213,61 @@ class TestStationGates(unittest.TestCase):
                 self.assertEqual(heard[0]["not_gated"], "RFONLY in path")
                 self.assertTrue(heard[1]["gated"])
                 self.assertEqual(st.status()["counts"]["gated"], 1)
+            finally:
+                st.stop()
+                srv.close()
+
+    def test_every_copy_gated_byte_for_byte(self):
+        srv = FakeServer()
+        with tempfile.TemporaryDirectory() as d:
+            st = Station(os.path.join(d, "config.json"), simulate=True)
+            st.start()
+            try:
+                st.change_settings({"station": {"callsign": CALL},
+                                    "igate": {"enabled": True, "server": "127.0.0.1", "port": srv.port}})
+                self.assertTrue(wait_for(lambda: st.status()["igate"].get("state") == "connected"))
+                same = b"<\xff\x01N0TEST-7>APLRT1,WIDE1-1:>hi"
+                st._received(same, -100.0, 2.0)
+                st._received(same, -100.0, 2.0)                       # the same packet twice in a row
+                st._received(b"<\xff\x01N0TEST-8>APLRT1:>72\xb0F", -100.0, 2.0)
+                st._received(b"<\xff\x01N0TEST-9>APLRT1:>a\x00b", -100.0, 2.0)
+                st._received(b"<\xff\x01N0TEST-6>APLRT1:>cut\rN0EVIL>APRS:>x", -100.0, 2.0)
+                self.assertTrue(wait_for(lambda: len(srv.raw) >= 5))
+                q = f",qAO,{CALL}:".encode()
+                self.assertEqual(srv.raw, [b"N0TEST-7>APLRT1,WIDE1-1" + q + b">hi"] * 2 + [
+                    b"N0TEST-8>APLRT1" + q + b">72\xb0F",
+                    b"N0TEST-9>APLRT1" + q + b">a\x00b",
+                    b"N0TEST-6>APLRT1" + q + b">cut"])
+                self.assertEqual(st.status()["counts"]["gated"], 5)
+            finally:
+                st.stop()
+                srv.close()
+
+    def test_heard_tab_says_when_the_igate_is_off(self):
+        with tempfile.TemporaryDirectory() as d:
+            st = Station(os.path.join(d, "config.json"), simulate=True)
+            st.change_settings({"station": {"callsign": CALL}})
+            st._received(b"<\xff\x01N0TEST-7>APLRT1,WIDE1-1:>hi", -100.0, 2.0)
+            self.assertEqual(st.heard_since(0)[0]["not_gated"], "iGate is off")
+
+    def test_position_and_status_sent_right_after_each_login(self):
+        srv = FakeServer()
+        with tempfile.TemporaryDirectory() as d:
+            st = Station(os.path.join(d, "config.json"), simulate=True)
+            st.start()
+            try:
+                st.is_position_due = time.time() + 3600          # so only the login can send it
+                errs = st.change_settings({"station": {"callsign": CALL},
+                                           "beacon": {"enabled": True, "latitude": 37.0, "longitude": -121.58, "status_text": "Hill digi"},
+                                           "igate": {"enabled": True, "server": "127.0.0.1", "port": srv.port}})
+                self.assertEqual(errs, {})
+                ours = lambda: [l for l in srv.lines if l.startswith(f"{CALL}>")]   # the pretend radio's traffic is gated too
+                self.assertTrue(wait_for(lambda: len(ours()) >= 2))
+                self.assertTrue(ours()[0].startswith(f"{CALL}>APLPIK,TCPIP*:!"), ours()[0])
+                self.assertEqual(ours()[1], f"{CALL}>APLPIK,TCPIP*:>Hill digi")
+                self.assertEqual(st.status()["igate"]["dropped"], 0)
+                time.sleep(1.5)
+                self.assertEqual(len(ours()), 2)                     # once per login, not every pass
             finally:
                 st.stop()
                 srv.close()

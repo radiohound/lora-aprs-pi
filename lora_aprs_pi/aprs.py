@@ -3,7 +3,7 @@
 import math
 import re
 
-TOCALL = "APZLPI"     # APZ = experimental, until a device ID is registered
+TOCALL = "APLPIK"     # registered in the APRS device identification list (aprs-deviceid): LoRa APRS Pi, K6ATV
 
 _TNC2 = re.compile(rb"^([A-Za-z0-9-]{1,9})>([A-Za-z0-9-]{1,9})((?:,[A-Za-z0-9*-]{1,10}){0,8}):(.*)$", re.S)
 

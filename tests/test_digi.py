@@ -46,9 +46,14 @@ class TestPathRules(unittest.TestCase):
         self.assertEqual(self.path("WIDE1-1,RFONLY", "fill-in"), (f"{CALL}*,RFONLY", None))
 
     def test_decide(self):
-        self.assertEqual(digi.decide("N0TEST-7>APLRT1,WIDE1-1:>hi", CALL, "fill-in"),
-                         (f"N0TEST-7>APLRT1,{CALL}*:>hi", None))
-        self.assertEqual(digi.decide(f"{CALL}>APZLPI,WIDE1-1:>me", CALL, "fill-in")[1], "our own packet")
+        self.assertEqual(digi.decide(b"N0TEST-7>APLRT1,WIDE1-1:>hi", CALL, "fill-in"),
+                         (f"N0TEST-7>APLRT1,{CALL}*:>hi".encode(), None))
+        self.assertEqual(digi.decide(f"{CALL}>APLPIK,WIDE1-1:>me".encode(), CALL, "fill-in")[1], "our own packet")
+
+    def test_decide_keeps_the_information_field_byte_for_byte(self):
+        info = b">73\xb0 \x00\xff\xfe"                    # Latin-1 degree sign, NUL, not UTF-8
+        new, _ = digi.decide(b"N0TEST-7>APLRT1,WIDE1-1:" + info, CALL, "fill-in")
+        self.assertEqual(new, f"N0TEST-7>APLRT1,{CALL}*:".encode() + info)
 
 
 class TestRxtScales(unittest.TestCase):
@@ -82,13 +87,13 @@ class TestLacfRelay(unittest.TestCase):
                     continue
                 received, relayed, relayed_pkt = line.split()
                 got = digi.build_frame(bytes.fromhex(received), "lacf",
-                                       bytes.fromhex(relayed_pkt).decode(), "N0RLY-1", bytes([50, 20, 45, 10]))
+                                       bytes.fromhex(relayed_pkt), "N0RLY-1", bytes([50, 20, 45, 10]))
                 self.assertEqual(got, bytes.fromhex(relayed))
                 n += 1
         self.assertGreater(n, 5)
 
     def test_standard_repeated_as_text(self):
-        self.assertEqual(digi.build_frame(b"", "standard", "A>B,C*:>x", CALL, b"\0\0\0\0"), b"<\xff\x01A>B,C*:>x")
+        self.assertEqual(digi.build_frame(b"", "standard", b"A>B,C*:>x", CALL, b"\0\0\0\0"), b"<\xff\x01A>B,C*:>x")
 
 
 class TestStationRepeats(unittest.TestCase):

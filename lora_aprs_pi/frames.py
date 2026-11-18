@@ -15,7 +15,9 @@ LACF = lacf.PREFIX
 def decode(raw):
     """What a received frame holds: {'format', 'text' (bytes or None), 'error', 'lacf'}."""
     if raw.startswith(PLAIN):
-        text = raw[3:].rstrip(b"\r\n\x00")
+        # Trailing CR/LF only; NULs are kept. The driver reads exactly the length the chip
+        # reports, so a NUL here was sent by the other station, not padding of ours.
+        text = raw[3:].rstrip(b"\r\n")
         if b">" not in text or b":" not in text:
             return {"format": "standard", "text": None, "error": "not an APRS packet", "lacf": None}
         return {"format": "standard", "text": text, "error": None, "lacf": None}
